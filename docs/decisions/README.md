@@ -47,4 +47,4 @@ authoritative.
 | [018](ADR-018-fleet-link-profile-and-saves.md) | Fleet link profiles and a match save per transport | Accepted, 2026-11-20 |
 | [016-A1](ADR-016-amendment-1-companion.md) | PacketShark and a paired companion (amends rules 1 and 11 of ADR-016) | Proposed |
 | [019](ADR-019-companion-gateway.md) | An authenticated Companion Gateway (`gatewayd`) | Accepted, 2026-11-21 (`services/gatewayd`, M2 to M4.2; off by default, not in the image) |
-| [019-A3](ADR-019-amendment-3-relay.md) | An optional self-hosted DOORS Relay: outbound TCP 443, local-first, end-to-end gateway TLS (amends rule 5) | Proposed |
+| [019-A3](ADR-019-amendment-3-relay.md) | An optional self-hosted DOORS Relay: outbound TCP 443, local-first, end-to-end gateway TLS (amends rule 5) | Proposed; approved in principle 2026-11-27 (design concerns resolved, independent review answered) |

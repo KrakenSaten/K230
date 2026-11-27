@@ -1,106 +1,160 @@
 # Companion: threat model of the DOORS Relay
 
-Status: **draft** for ADR-019 amendment 3 (Proposed, 2026-11-27). A
-design-time analysis: nothing is implemented or tested, and no independent
-review has taken place. It extends `THREAT_MODEL.md`, whose assets, adversaries
-and threats T1 to T23 still apply to every session, whichever path carried it.
+Status: **draft** for ADR-019 amendment 3, which is Proposed and was approved
+in principle on 2026-11-27. Revised after the independent review
+(`RELAY_PROPOSAL.md` §15). A design-time analysis: nothing is implemented or
+tested.
+
+- It extends `THREAT_MODEL.md`. Its threats T1 to T23 still apply to every
+  gateway session, whichever path carried it.
+- Rule numbers are the amendment's; section numbers are `RELAY_PROPOSAL.md`'s.
 
 ## 1. What else is protected
 
 | Asset | Where | Why it matters |
 | --- | --- | --- |
-| A9 Remote availability | the relay; the unit's control connection | Remote access stops when either fails; the LAN path must not |
-| A10 Who talks to whom | the relay's memory and logs | Which phone reaches which unit, when, from where, how much |
-| A11 The relay's key | the relay's host | Standing in for the relay to units and phones |
-| A12 The unit's session slots and the hart | gatewayd (ADR-019 §6), one hart shared with the shell (A8) | Relay traffic must not starve LAN phones or the panel |
+| A9 Remote availability | the relay; the helper; the control connection | Remote access stops when they fail; the LAN path must not |
+| A10 Who talks to whom | the relay's memory and logs | Which phone reaches which unit, when, from which network, how much |
+| A11 The relay's keys (active, backup) | the relay host; the operator's offline store | Standing in for the relay |
+| A12 The unit's session slots, gatewayd's loop, the hart | ADR-019 §6, rule 7; the shell (A8) | Relay traffic must not starve LAN phones, upstream services or the panel |
+| A13 The pins and the endorsement sequence | `relay.v1` on the unit; each phone's store | Keep old or foreign relay keys out |
 
 ## 2. Who else attacks
 
 | Adversary | Can | Cannot (assumed) |
 | --- | --- | --- |
-| R1 The relay, compromised or run by someone hostile | see metadata (A10); drop, delay, reorder or inject bytes; admit anyone to a unit's handshake; refuse service; flood the unit with invitations | break TLS 1.3; read or forge either end's key; learn a pairing token; see an approval |
-| I1 Any host on the internet | reach the relay's port; flood it; guess device ids | reach a unit (no listener faces it) |
-| N3 The network between an end and the relay (guest Wi-Fi, carrier, captive portal) | see that a TLS connection to the relay's address on 443 exists, its ALPN, timing and volume; block it; redirect it | read it; pass the relay's pin |
-| P3 A paired phone with `remote`, stolen or with a hostile app build | everything its scopes allow, **from anywhere the relay is reachable** | extract the Keystore key; raise its scopes; revoke itself back in |
-
-Out of scope, as before: code already running as root on the unit, a rooted
-phone, and the security of the relay host's own operating system beyond what
-R1 covers.
+| R1 A relay, compromised or hostile | see metadata; drop, delay or inject bytes; admit anyone to a unit's handshake; refuse service; flood the helper; offer its own pairing candidate | break TLS 1.3; forge a unit's or a phone's signature; learn a pairing token; see an approval; prove a key it does not hold |
+| R2 The helper, compromised through a parser bug | everything R1 can, from inside the unit, under its own unprivileged id and seccomp filter; send gatewayd its small frames | read the device key or `/etc/shadow`; obtain an endorsement or promotion of a key that is not proven and pinned; block gatewayd; act as root |
+| I1 Any internet host | reach the relay's port; flood it; send HTTP or TLS of any kind | reach a unit |
+| N3 The network between an end and the relay | see SNI, ALPN, timing, volume and a proxy's `CONNECT` target; block; redirect; intercept TLS with its own CA | read relay sessions; pass the unit's pins or the phone's pin and endorsement check |
+| P3 A paired phone with `remote`, stolen or hostile | its scopes, **from anywhere the relay is reachable** | extract its Keystore key; raise its scopes |
+| S1 Someone who photographs a pairing code | become a candidate during that window | finish pairing without approval on the panel |
 
 ## 3. Threats and answers
 
 | # | Threat | Answer | Residual |
 | --- | --- | --- | --- |
-| R-T1 | I1 reaches a unit through the relay | Outer TLS requires a key; the relay routes only fingerprints a connected unit admitted (rule 32); one answer, `unavailable`, for unknown, offline and not-admitted, so no oracle | The relay's own TLS handshake is its unauthenticated surface |
-| R-T2 | R1 reads application traffic | The gateway's TLS 1.3 runs end to end inside the splice; the relay has no key for it (rule 30) | Metadata, A10 (R-T15) |
-| R-T3 | R1 impersonates the unit to a phone, or a phone to the unit | Inner mutual pins unchanged (ADR-019 rules 11-13); the relay cannot finish either side of the inner handshake | None in the design |
-| R-T4 | R1 lets strangers reach the unit's handshake | gatewayd's pin check closes an unknown key outside a window before any application byte (rule 14); the relay's admission is advisory only | The unit's handshake becomes reachable to whomever R1 sends (bounded by R-T13) |
-| R-T5 | R1 pairs a phone of its choice | A pairing needs the token, which is only on the panel, and approval on the panel showing the candidate's key (rules 21-22, amendment 2). R1 sees only a slot id derived one-way from the token (rule 34) | During an open window R1 can put its own candidate first and block the owner's pairing: the panel shows a key that does not match the owner's phone, as T3 |
-| R-T6 | A pairing slot id leaks | It grants only being invited as a candidate while the window is open; the token and the approval are still required | None beyond R-T5 |
-| R-T7 | A data connection is hijacked or an invitation replayed | The cookie is 128 random bits, one-time, bound to the unit's authenticated control connection, valid for seconds, and never seen on the wire (outer TLS) | A hijack can only fail the inner handshake: a denial |
-| R-T8 | N3 or DNS points an end at a fake relay (captive portal, DNS hijack, routing) | The relay's key is pinned at both ends, no CA, no fallback (rule 31); the app says "relay key mismatch" and does not connect | Denial of remote access |
-| R-T9 | P3 uses a stolen phone from far away | `remote` is off by default and per phone (rule 33); revoking on the unit closes the relay session at once and removes the phone from the relay's list; the unit shows which phone is connected and through which path | What it did before revocation; revocation needs someone at the unit (by design, as rule 23) |
-| R-T10 | Someone blocks the LAN path to force the relay | Both paths carry the same inner TLS, so security is equal; the app and the unit show the path (rule 36) | The relay operator then sees the session's metadata |
-| R-T11 | The relay is abused as an open proxy | The protocol names a unit, never a host, port or service (rule 35); only enrolled units; per-unit quotas | None in the design |
-| R-T12 | I1 floods the relay | Limits per source, per unit and global (`RELAY_PROPOSAL.md` §7) | Remote access is unavailable; the LAN path is unaffected |
-| R-T13 | R1 floods the unit with invitations, or keeps its slots busy, to starve LAN phones (A12) | Invitations are bounded by the gateway's own slots and handshake rate (rule 38). **Relay sessions get their own budget, below ADR-019 §6's totals**: proposed at most 1 pending relay handshake and 1 relay session, so a LAN phone always has a slot | A hostile relay can keep remote access busy; LAN unaffected |
-| R-T14 | Double handshakes (outer and inner) cost the hart (A8) | Rate limits as above; nice 5; the cost is measured at the hardware gate (open item H2) | Unmeasured |
-| R-T15 | The relay learns who talks to whom (A10) | Self-hosted by the owner; said in Settings (rule 40); logs carry fingerprint prefixes, not names | Accepted. A later step could give each unit a separate relay key so relay logs cannot be joined with LAN pairings |
-| R-T16 | N3 learns that a Doors relay is used | ALPN `doors-relay/1` is visible in the ClientHello (no ECH); content is not | Accepted; a neutral ALPN would only hide the name, not the pattern |
-| R-T17 | A wrong or reset clock breaks trust | Nothing on the unit reads a date: pins, nonces, monotonic timers (rule 37) | None in the design |
-| R-T18 | A revocation races a live relay session | gatewayd closes the inner session itself (rule 23), then publishes the new list; the relay closes the splice; the next connection is not admitted | None in the design: gatewayd is authoritative |
-| R-T19 | A11 is stolen | The thief is a relay (R1): metadata and denial, no decryption, no impersonation of either end. Rotation: a new fingerprint configured on the unit; phones learn it inside the authenticated session; the old one is removed | Metadata until rotation |
-| R-T20 | Someone enrols another unit on the owner's relay | Enrolment is the relay operator's act, per device key; another unit gains nothing over this unit's sessions | Relay capacity |
-| R-T21 | The relay's logs leak secrets | No secret crosses the relay in clear; rule 39 and a lint on the server's log calls | - |
-| R-T22 | A phone without the scope reaches the unit through the relay | Not in the unit's list (rule 32), and even if R1 admits it, the gateway knows it is not admitted for relay sessions and closes it after the handshake | None in the design |
-
-Design points this model adds to the proposal:
-- the separate relay budget of R-T13;
-- the gateway's own check that a relay session's client holds `remote`
-  (R-T22): the gateway does not rely on the relay for that either.
+| R-T1 | I1 reaches a unit | Every connection signs a relay nonce with a key; only admitted fingerprints are routed (rule 32) | The relay's TLS and HTTP start (Go) are its unauthenticated surface |
+| R-T2 | R1 reads application traffic | ADR-019's TLS runs end to end inside the splice (rule 30) | Metadata (R-T15) |
+| R-T3 | R1 impersonates either end | Inner mutual pins unchanged | None in the design |
+| R-T4 | R1 lets strangers reach the unit's handshake | Pin check, rule 14; the gateway refuses a relay session without `remote` (rule 32) | Reachable within §8.2's budget |
+| R-T5 | R1 pairs a phone of its choice | The token is on the panel only; R1 sees a one-way slot id; approval on the panel shows the key | R1 can offer its own candidate and occupy the **relay** candidate slot; the LAN slot is unaffected (R-T34) |
+| R-T6 | A slot id leaks | Only candidate status during an open relay window | None beyond R-T5 |
+| R-T7 | A data connection is hijacked, or an invitation replayed | One-time 128-bit cookies, valid 5 s, sent only over the helper's TLS | A denial |
+| R-T8 | The unit is pointed at a fake relay | The helper accepts only pinned keys; gatewayd signs logins only for pinned keys (rule 31) | Denial |
+| R-T9 | A phone is pointed at a fake relay | Normally the phone pins the relay key it learned from the unit. On the provisional path nothing goes out before the endorsement check but the HTTP start (the Host the SNI already shows) and a lookup bound to the presented key (§4.2) | The fake relay learns the phone's address, and could test candidate `device_id`s against the lookup |
+| R-T10 | An endorsement is forged | Needs the unit's device key | None in the design |
+| R-T11 | A stolen old relay key with its old endorsement (rollback) | Promotion removes the old pin from the unit. Each phone keeps its highest sequence, and only an authenticated gateway session resets it | A phone that missed the newer endorsement can be shown the old key: metadata and denial, never content |
+| R-T12 | Signatures of the device key are confused | Distinct prefixes (§4.3) | None in the design |
+| R-T13 | R1 or R2 starves LAN phones of slots | Relay budget inside ADR-019 §6; a LAN slot always free; the relay budget counts after replacement (§7.2) | Remote busy; LAN unaffected |
+| R-T14 | R1 or R2 starves gatewayd's loop or the hart | No relay parsing in gatewayd. Descriptors only go out, non-blocking. Reads are bounded (`GW_READ_BATCH`). The helper runs at nice 10, with byte and frame limits before decryption, and 1 relay handshake per second | The helper's share of the hart (H2). gatewayd's synchronous `upstream_call` is a pre-existing stall for any phone (§8.4) |
+| R-T15 | The relay learns who talks to whom | Self-hosted; said in Settings (rule 42); addresses truncated in logs (rule 41) | Accepted. Separate relay identities later (§17) |
+| R-T16 | N3 learns that a Doors relay is used | HTTPS-shaped; the path is inside TLS; a proxy sees `CONNECT name:443` | The pattern of a long-lived connection; the relay's name |
+| R-T17 | A wrong clock | Pins, sequences, nonces, monotonic timers (rule 40) | None in the design |
+| R-T18 | A revocation races a relay session | gatewayd closes the session itself, then sends `admit` | None: gatewayd decides |
+| R-T19 | R2 abuses its line to gatewayd | An abstract socket admitted by `SO_PEERCRED`; fixed frames of at most 256 bytes and 20/s, read without a control buffer. Logins are signed only for pinned keys, 1/s. Endorsements come only from gatewayd's configuration. The backup pin is accepted only with a signature by the confirmed active key, at set-up. Promotion needs a `key_proof` under the pinned backup. gatewayd never receives a descriptor | R2 can log in as the unit to a pinned relay (it already holds that connection), and deny remote access |
+| R-T20 | A parser bug in the relay path gives root, or the device key | The helper runs under its own id, without capabilities, with `no_new_privs`, seccomp and limits; it is started outside gatewayd's capability drop (rule 38). gatewayd parses no relay frame | A kernel exploit from the helper's sandbox (out of scope, as for every process) |
+| R-T21 | A stalled second attempt ends a working session | The phone never runs two gateway handshakes for one unit at once (rule 37) | A hostile app build (P1) can do so to its own sessions |
+| R-T22 | The phone flaps between paths | One handshake at a time; the LAN is retried only on a network change, with back-off | A brief relay session before the LAN wins |
+| R-T23 | `remote` granted by mistake | The approval-sheet switch is shown off and needs its own tap; the sheet says "through your relay" | A person's error; it can be taken away on the phone's page |
+| R-T24 | The relay withholds `admitted` after a relay pairing | gatewayd waits at most 3 s; the phone retries twice | Denial for that phone |
+| R-T25 | P3 from far away | `remote` never a default; revocation at the unit is immediate on the relay too | What it did before revocation |
+| R-T26 | N3 intercepts TLS (captive portal, its own CA) | Pins or the endorsement check fail; the app says why; no bypass | No remote on that network |
+| R-T27 | The relay is abused as an open proxy | No host, port or service in the protocol; only enrolled units | None in the design |
+| R-T28 | Someone enrols another unit on the owner's relay | The operator's act; units isolated from each other | Capacity |
+| R-T29 | Logs leak secrets or locations | No secret in clear; addresses truncated; a lint on log calls | - |
+| R-T30 | Settings is set up with a relay the owner does not run | Set-up only on the unit's screen; the person compares the 16-digit fingerprint with the one the relay printed | A person who confirms a stranger's relay gives it metadata |
+| R-T31 | S1 uses a photographed code from anywhere | The relay path of a window is off unless switched on for that window; approval and key comparison on the panel still decide | During a relay-enabled window, a remote stranger can become the relay candidate (and be refused on the panel) |
+| R-T32 | R1 or R2 abuses rotation (re-accept the old key, burn the backup, wear the card) | One-way promotion, only after a `key_proof` under the pinned backup key, written once per configuration; the old pin removed | None in the design |
+| R-T33 | A phone without `remote` cannot learn of a later grant, and is locked out on isolating networks (availability) | "Try through the relay" on the person's tap is admitted once `remote` is given | The person must tap |
+| R-T34 | R1 blocks LAN pairing through the shared candidate slot or strike count | Separate relay candidate slot and strike count; relay strikes close only the relay path | None in the design |
+| R-T35 | A rollback of gatewayd meets an unknown scope bit and goes to `state_fault` | `remote` is kept in `relay.v1`, which an older gatewayd ignores | Remote is off after a rollback |
+| R-T36 | A LAN address change ends relay sessions, or no private address stops remote | Only reasons of address spare relay sessions and relay-only windows (rule 29) | None in the design |
+| R-T37 | R2, or a relay reached before confirmation, plants an attacker's key as the backup pin, then promotes it and captures the unit's relay (found in the re-check) | `backup` is signed by the human-confirmed active key over a fresh gatewayd nonce, verified by gatewayd, and accepted at set-up only (§4.1) | None in the design |
+| R-T38 | Relay sessions outlive a gateway that must close (no password, `identity_fault`, `state_fault`): rule 9b bypassed for remote phones | Every reason of the gateway's own closes relay sessions and disconnects the helper; only reasons of address spare them (§7.2) | None in the design |
+| R-T39 | After a lost `relay.v1` and a new set-up, old endorsements of a stolen key pass again because the sequence restarts | A random configuration id in every endorsement; a new id reaches phones only over an authenticated session or a pairing (§4.2) | None in the design |
+| R-T40 | R1 crashes the helper repeatedly until `pos-supervise` stops it for good | The helper never exits on relay misbehaviour; it closes and backs off (§8.1) | A bug that crashes it is still a crash: remote access stops until the next start, and the LAN is unaffected |
+| R-T41 | R1 or R2 refuses a returning phone through the limit of 1 | The relay, the helper and gatewayd all replace the same phone's session (§7.2) | None in the design |
 
 ## 4. What does not change
 
-- Every Doors process is root; the gateway narrows, it does not contain.
-- The device key is protected by file permissions only (T10).
-- The pre-authentication surface on the unit is OpenSSL's TLS 1.3 handshake.
-  It is now reachable through the relay, but only for phones the relay admits
-  (or anyone, if the relay is hostile, bounded by R-T13).
+- gatewayd and every other Doors service but the helper are root. The
+  gateway narrows what reaches them.
+- The device key is protected by file permissions (T10). Whoever reads the
+  card can also endorse a relay of their own; they can impersonate the unit
+  already.
+- gatewayd's pre-authentication surface is OpenSSL's TLS 1.3 handshake.
+  Through the relay it is reachable only within the relay budget.
 
 ## 5. Checks that must exist before this carries real traffic
 
-1. **Outer TLS:** the relay's pin accepted with any date, name or issuer, and
-   refused with the wrong key; TLS 1.2, a missing client certificate, an
-   RSA key, a second certificate all refused.
-2. **Admission:**
-   - an unknown phone, a not-admitted phone and an offline unit all get the
-     same `unavailable`;
-   - a phone removed from the list loses its splice within a second.
-3. **Pairing through the relay:**
-   - slot open, slot withdrawn, a second candidate;
-   - a candidate with the slot but a wrong token;
-   - approval on the panel with the fingerprint compared;
-   - the relay never sees the token (a test that greps the relay's memory and
-     logs in a test build).
-4. **Hostile relay tests,** with a test relay that lies:
-   - it admits a stranger;
-   - it injects bytes into a splice;
-   - it replays a cookie;
-   - it floods invitations;
-   - it claims another unit's id.
-
-   Each must end in a refused handshake or a declined invitation, with the
-   LAN slot still free.
-5. **Revocation and scope:**
-   - `remote` taken: the live relay session closes and the next one is refused;
-   - LAN sessions of the same phone are unaffected unless revoked.
-6. **Limits:** the relay's per-source, per-unit and per-session limits under
-   load; the unit's relay budget (R-T13).
-7. **A fuzzer** over the relay's frame reader and gatewayd's control-frame
-   reader, with sanitizers.
-8. **On hardware**, with a go-ahead:
-   - pairing and sessions through the relay from an isolating network and
-     from mobile data;
-   - the handshake cost and the shell's frame time;
-   - a relay restart, a unit reboot and a network change;
-   - a flood against the relay while a LAN phone keeps working.
+1. **The unit's pins:**
+   - only `A` or `B` is accepted, with a single certificate or a CA chain,
+     whatever the dates;
+   - TLS 1.2, an RSA key and a missing SNI are refused;
+   - logins are signed only for pinned keys.
+2. **The backup and promotion:**
+   - a `backup` without a valid signature by the confirmed `A`, or outside
+     set-up, is refused;
+   - `B` is promoted only after a valid `key_proof`, and only once;
+   - `A` is refused afterwards;
+   - a hostile helper's false `presented {B}`, without a proof, changes
+     nothing and writes nothing.
+3. **Endorsements and the phone:**
+   - the pinned path is used when the key is known;
+   - on the provisional path, each wrong field (signature, name, port, key,
+     configuration id, lower sequence) is refused;
+   - after a new set-up (new id), an old endorsement with a higher sequence
+     is refused;
+   - a relay with a CA chain passes the leaf-only pinned path;
+   - nothing beyond the HTTP start and the bound lookup is sent before
+     acceptance;
+   - the unit never endorses an unpinned key;
+   - a sequence reset happens only through `gateway.hello`.
+4. **Rotation with the phone away:** `A` to `B` through the relay alone, then
+   `A` is refused.
+5. **Admission:**
+   - unknown, not admitted and offline all get `unavailable`;
+   - a removal ends the splice within a second;
+   - a paired phone without `remote` that a lying relay passes through is
+     closed by the gateway.
+6. **Pairing:**
+   - a window with the relay off has no `r` and no slot;
+   - with it on: a slot, a relay candidate and a LAN candidate together, and
+     three wrong tokens on the relay path (the LAN path still open);
+   - `remote` on with `admitted` first, off with the message, and the later
+     tap after a grant;
+   - the token absent from the relay's memory and logs (a test build);
+   - the code under 512 characters with a 64-character name.
+7. **Races:**
+   - LAN and relay ready together: one gateway handshake;
+   - replacement at the end of the handshake, before the limits;
+   - a phone returning through the relay replaces its dead relay session at
+     the relay, in the helper and in gatewayd;
+   - a send in flight is transmitted once.
+8. **Isolation:**
+   - the helper runs under its id, with no capabilities, `no_new_privs`,
+     seccomp and its limits, and cannot open `identity.v1` or `/etc/shadow`;
+   - `SO_PEERCRED` refuses any other peer;
+   - gatewayd never accepts a descriptor;
+   - a lying relay and a hostile helper (floods, oversized frames, signing
+     above the rate) end in refusals, declines or a restart, while pocketipc
+     reads stay within budget and a LAN phone stays served.
+9. **The listener:**
+   - relay sessions survive an address change, and a relay-only window opens
+     without a private address (with no `h` in the code);
+   - with the password removed (`passwd -d`), `identity_fault`,
+     `state_fault` or the switch off, relay sessions close and the helper
+     disconnects;
+   - the helper survives a relay that misbehaves without exiting.
+10. **Restrictive networks:**
+    - an HTTP proxy with `CONNECT`;
+    - a captive portal (no attempt);
+    - TLS interception (fails closed, with the message);
+    - a plain HTTP request (`404`);
+    - a CA-issued chain for the pinned key (accepted).
+11. **Rollback:** an older gatewayd with a `relay.v1` present starts normally,
+    with remote off.
+12. **Fuzzers** over the relay's HTTP start and frames (Go), and the helper's
+    and gatewayd's helper-line readers (C, with sanitizers).
+13. **On hardware**, with a go-ahead: `RELAY_PROPOSAL.md` §16, phase 4.
