@@ -9,7 +9,14 @@ This is the wire protocol of ADR-019 amendment 3 (rules 28 to 42, accepted 2026-
 - Where the proposal was silent, the first revision made the smallest decision consistent with the amendment and marked it **[Q*n*]**.
 - The owner has accepted every disposition of the review. Q9, Q22 and Q27 were revised. §14 lists them as resolved.
 
-Threats and required checks: `docs/design/companion/RELAY_THREAT_MODEL.md`. The gateway protocol, which runs unchanged inside a splice: `docs/api/gateway.md`.
+**Related documents:**
+- **Threats and required checks:** `docs/design/companion/RELAY_THREAT_MODEL.md`. The second review's threats are R-T42 to R-T50, and check 13 covers the relay's own resources.
+- **The proposal's parts this follows:**
+  - §5.2: capacity, one place;
+  - §6.1: pairing commit and recovery, the two-file rule;
+  - §8.1: the helper's IPC, with `gen` and `op`, and the helper frames `registered` and `admitted {n}`;
+  - §15.3: the review's answers.
+- **The gateway protocol,** which runs unchanged inside a splice: `docs/api/gateway.md`.
 
 ## 1. Overview
 
@@ -254,7 +261,7 @@ The cookie is consumed in that section, whatever the answer. Expiry never depend
 
 ### 7.6 One place, and replacement (rule 37)
 
-- **One place per unit (Q9).** It holds one pending invitation or one splice, of a listed phone or of a candidate. While it is taken, a `connect` from any other phone gets `unavailable`. So relay pairing is busy while a listed phone's splice runs, and the other way round. This is v1's accepted trade-off, matching the helper's one data connection and gatewayd's one relay socket (`RELAY_PROPOSAL.md` §8.2, §8.3).
+- **One place per unit (Q9).** It holds one pending invitation or one splice, of a listed phone or of a candidate. While it is taken, a `connect` from any other phone gets `unavailable`. So relay pairing is busy while a listed phone's splice runs, and the other way round. This is v1's accepted trade-off (`RELAY_PROPOSAL.md` §5.2), matching the helper's one data connection and gatewayd's one relay socket (§8.2, §8.3).
 - **Replacement (Q10).** A `connect` from the phone that holds the place, as a listed phone or a candidate, replaces its own invitation or splice when the new `connect` is admitted. If the new `join` then fails, the phone has no relay session; that is the accepted availability trade-off. A refused `connect` leaves the old one running. gatewayd replaces a session only after the inner handshake has authenticated the phone and its eligibility on the actual ingress path is checked (§9.1).
 
 ## 8. Signed and hashed messages
@@ -296,7 +303,7 @@ The relay cannot enforce these checks; phases 2 and 3 must implement them. `rela
 ### 9.1 The unit (gatewayd and its helper)
 
 - **Accepted relay:** only a leaf key that is A or B (§3), over TLS 1.3, with SNI. A unit login is signed only for a pinned key (rule 31).
-- **Matching (Q3):** gatewayd matches each `key_proof` and `backup` to its outstanding operation, its fresh nonce, the expected pin, and its set-up or promotion generation. Anything else is discarded.
+- **Matching (Q3):** gatewayd matches each `key_proof` and `backup` to its outstanding operation, its fresh nonce, the expected pin, and its set-up or promotion generation. Anything else is discarded. The helper carries this protocol for gatewayd over its IPC, where every message carries `gen` and `op` and the helper reports `registered` and `admitted {n}` (`RELAY_PROPOSAL.md` §8.1).
 - **Set-up (rule 28; Q7):**
   1. A probe connection shows the presented key's sixteen digits to the person. The person's set-up dial is allowed by rule 29.
   2. After confirmation, a **fresh connection, pinned to the full SPKI hash from the probe**, logs in.
@@ -309,8 +316,15 @@ The relay cannot enforce these checks; phases 2 and 3 must implement them. `rela
   3. It then registers with an endorsement of the new A, and closes every connection presenting the old A.
 - **After `registered`:** the full admission snapshot first, then a `pair_slot` if a window allows the relay. Acknowledgements are matched to the control generation and the outstanding `n`.
 - **Pairing commit and recovery:** `RELAY_PROPOSAL.md` §6.1, the two-file rule for `paired.v1` and `relay.v1`.
-  - A relay pairing approved with "Through the relay" is answered with `relay: "admitted"` or `relay: "pending"`. `pending` is an outcome, not an error: the pairing stands.
-  - `gateway.hello` reports `relay: "admitted" | "pending" | "off"`.
+  - **The write:** every change to `paired.v1` (a pairing, a known key pairing again, a revocation) is preceded by a `relay.v1` write that records the grants before and after the change, and the SHA-256 of `paired.v1` before and after it.
+  - **At start:**
+    - a digest equal to "after" uses the grants after;
+    - a digest equal to "before" means the change was interrupted and did not happen, so it uses the grants before. An interrupted pairing grants nothing, and an interrupted revocation leaves the phone as it was;
+    - a digest equal to neither drops every grant.
+
+    A grant counts only for a key present in `paired.v1`.
+  - **The answer:** a relay pairing approved with "Through the relay" is answered with `relay: "admitted"` or `relay: "pending"`. `pending` is an outcome, not an error: the pairing stands. A pairing without it is answered before the snapshot that may drop the key's old grant.
+  - **`gateway.hello`** reports `relay: "admitted" | "pending" | "off"`.
 - **Gateway rules:** the gateway's own rules are unchanged inside the splice.
   - A relay session of a paired phone without `remote` is closed after the handshake, whatever the relay admitted (rule 32).
   - A relay attempt never displaces that phone's working LAN session before the inner handshake has authenticated it and its grant is checked (Q10).
@@ -432,7 +446,7 @@ The owner accepted every disposition of the Codex review (2026-11-27), with Q9, 
 - **The review's T1 to T18** are in `relay/internal/server/review_test.go`, plus T14 (`TestEnroll` under any umask) and T16 (`wire.TestFrameVectors`).
   - **Deterministic:** an injected monotonic clock decides invitation deadlines. Named race points (`register-committed`, `register-effects-done`, `admit-committed`, `joined`, `ready-sent`) let a test hold the relay between two steps. No test sleeps in the hope of a schedule.
 - **Mutation check:** each fix was undone by hand, one at a time, and the suite run.
-  - 17 of 19 such mutations fail a test.
+  - 20 of 22 such mutations fail a test. Three of them undo the two-file rule's start cases in the fake unit, among them the earlier reading that an interrupted change uses the grants after; T9 catches each.
   - The other two are equivalent: removing the wait for the copy goroutines after both raw sockets are closed, and removing a `decline`'s generation check while its control-identity check stays.
 - **The full suite:** `go vet ./...` and `go test -race -count=1 ./...`, under umask 022 and 077 (`docs/BUILD_ENVIRONMENT.md`, "DOORS Relay").
 
@@ -467,5 +481,5 @@ The owner accepted every disposition of the Codex review (2026-11-27), with Q9, 
 - **No real ends:** no gatewayd, helper or app speaks this yet. Every test runs the Go relay against Go stand-ins (`relay/internal/fake`) and the lying relay (`relay/internal/liar`) on 127.0.0.1.
 - **No real network:** no relay host and no VPS. Restrictive networks were simulated with a local `CONNECT` proxy, a local TLS interceptor and a local delaying proxy only.
 - **One Go version:** built and tested with Go 1.27.4 only. `go.mod` says `go 1.24.0`, the first release with `crypto/hkdf`, and `go vet`'s stdversion check passed. Go 1.24.0 is not installed here, and was not installed for this.
-- **The fake unit's two-file rule** (T9) is the contract's reference behaviour in Go, not gatewayd's C, and it has no production sandbox.
+- **The fake unit's two-file rule** (T9) is the contract's reference behaviour in Go, not gatewayd's C, and it has no production sandbox. Its `paired.v1` holds each key with a count of its pairings, which stands for the name and scopes gatewayd rewrites when a known key pairs again.
 - **Threat model items left to later phases:** 3 (beyond the Go phone), 7 (beyond the relay), 8, 9, 11, 12's C fuzzers, and 13.

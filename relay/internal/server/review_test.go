@@ -10,7 +10,6 @@ package server
 import (
 	"bytes"
 	"encoding/binary"
-	"encoding/json"
 	"errors"
 	"io"
 	"net"
@@ -569,11 +568,15 @@ func TestT9PairingCommitPendingRecovery(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		var f struct{ Paired []string }
-		if err := json.Unmarshal(b, &f); err != nil {
+		entries, err := fake.PairedFile(b)
+		if err != nil {
 			t.Fatal(err)
 		}
-		return f.Paired
+		var keys []string
+		for _, e := range entries {
+			keys = append(keys, e.Key)
+		}
+		return keys
 	}
 	relayFile := func() string {
 		b, _ := os.ReadFile(filepath.Join(dir, "relay.v1"))
@@ -649,10 +652,9 @@ func TestT9PairingCommitPendingRecovery(t *testing.T) {
 		t.Fatal("re-paired phone without remote reached the unit through the relay")
 	}
 
-	// Start case "after": the files agree.
-	if ok, _ := u.SetRemote(p.FP, true); !ok {
-		t.Fatal("grant not confirmed")
-	}
+	// The two-file rule's start cases (RELAY_PROPOSAL.md §6.1): "after"
+	// uses the grants after; "before" means the change was interrupted and
+	// did not happen, so the grants before; "neither" drops every grant.
 	load := func() *fake.Unit {
 		v := fake.NewUnit(relayName, 443, nil)
 		v.Dir = dir
@@ -661,35 +663,66 @@ func TestT9PairingCommitPendingRecovery(t *testing.T) {
 		}
 		return v
 	}
+	crashing := func(on bool) { u.Set(func(x *fake.Unit) { x.CrashAfterRelayWrite = on }) }
+	pairAgain := func(ph *fake.Phone, rec *fake.Record, remote bool) (string, error) {
+		tok, _ := u.OpenWindow(true, remote)
+		slot := wire.SlotFromToken(tok)
+		var s *fake.Session
+		var err error
+		if rec.Pin == nil {
+			s, err = ph.Connect(ctx(t), rec, &slot)
+		} else {
+			s, err = ph.Connect(ctx(t), rec, nil) // a paired phone with remote
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer s.Close()
+		return s.Pair(tok)
+	}
+
+	if ok, _ := u.SetRemote(p.FP, true); !ok {
+		t.Fatal("grant not confirmed")
+	}
 	if v := load(); !v.Remote[p.FP] || !v.Paired[p.FP] || v.Notice != "" {
-		t.Fatal("start case after")
+		t.Fatal(`"after": the grants after`)
 	}
-	// Start case "before": an interrupted pairing grants nothing.
+
+	crashing(true)
 	q := newPhone(lw.to)
-	tok, _ = u.OpenWindow(true, true)
-	slot = wire.SlotFromToken(tok)
-	u.CrashAfterRelayWrite = true
-	s, err = q.Connect(ctx(t), firstPairing(u), &slot)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.Pair(tok); err == nil {
+	if _, err := pairAgain(q, firstPairing(u), true); err == nil {
 		t.Fatal("a crashed pairing answered")
 	}
-	s.Close()
 	if v := load(); v.Paired[q.FP] || v.Remote[q.FP] || !v.Remote[p.FP] || v.Notice != "" {
-		t.Fatal("start case before, interrupted pairing")
+		t.Fatal(`"before", interrupted pairing: the grants before, nothing for the new key`)
 	}
-	// ... and an interrupted revocation has already lost its grant.
 	u.Revoke(p.FP)
-	if v := load(); !v.Paired[p.FP] || v.Remote[p.FP] || v.Notice != "" {
-		t.Fatal("start case before, interrupted revocation")
+	if v := load(); !v.Paired[p.FP] || !v.Remote[p.FP] || v.Notice != "" {
+		t.Fatal(`"before", interrupted revocation: the phone as it was, paired, with its grant`)
 	}
-	u.CrashAfterRelayWrite = false
-	// Start case "neither": the paired list changed behind relay.v1.
-	os.WriteFile(filepath.Join(dir, "paired.v1"), []byte(`{"paired":["`+pFP+`","`+wire.Hex(q.FP[:])+`"]}`+"\n"), 0o600)
+	if _, err := pairAgain(p, rec, false); err == nil {
+		t.Fatal("a crashed pairing again answered")
+	}
+	if v := load(); !v.Paired[p.FP] || !v.Remote[p.FP] || v.Notice != "" {
+		t.Fatal(`"before", interrupted pairing again of a known key: its grant before`)
+	}
+	crashing(false)
+	if got, err := pairAgain(p, rec, false); err != nil || got != "paired" {
+		t.Fatalf("pairing again without remote: %q %v", got, err)
+	}
+	if keys := pairedKeys(); len(keys) != 1 {
+		t.Fatalf("pairing again made a second entry: %v", keys)
+	}
+	if v := load(); !v.Paired[p.FP] || v.Remote[p.FP] || v.Notice != "" {
+		t.Fatal(`"after", pairing again without remote: no grant`)
+	}
+
+	if ok, _ := u.SetRemote(p.FP, true); !ok || !load().Remote[p.FP] {
+		t.Fatal("grant not given back")
+	}
+	os.WriteFile(filepath.Join(dir, "paired.v1"), []byte(`{"paired":[{"key":"`+pFP+`","pairings":9},{"key":"`+wire.Hex(q.FP[:])+`","pairings":1}]}`+"\n"), 0o600)
 	if v := load(); len(v.Remote) != 0 || !strings.Contains(v.Notice, "turned off for every phone") {
-		t.Fatal("start case neither")
+		t.Fatal(`"neither": every grant dropped`)
 	}
 }
 

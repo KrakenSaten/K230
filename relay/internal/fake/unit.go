@@ -60,6 +60,8 @@ type Unit struct {
 	Seq       uint64
 	Paired    map[[32]byte]bool
 	Remote    map[[32]byte]bool // the remote grants
+	pairings  map[[32]byte]int  // paired.v1's count of pairings per key
+	lostGrant bool              // the last approval took a grant away
 	Decline   bool              // decline every invitation
 	Manual    bool              // record invitations only; the test joins
 	Promoted  int               // promotions done (at most one per configuration)
@@ -88,7 +90,7 @@ func NewUnit(name string, port uint16, dial Dialer) *Unit {
 	spki := wire.SPKI(&k.PublicKey)
 	return &Unit{
 		Key: k, SPKI: spki, ID: wire.Fingerprint(spki), Name: name, Port: port, Dial: dial,
-		Paired: map[[32]byte]bool{}, Remote: map[[32]byte]bool{},
+		Paired: map[[32]byte]bool{}, Remote: map[[32]byte]bool{}, pairings: map[[32]byte]int{},
 		admitted: make(chan ack, 8), sessions: map[[32]byte]net.Conn{},
 		invites: make(chan wire.Invite, 16),
 	}
@@ -418,14 +420,22 @@ func (u *Unit) relayStateLocked(phone [32]byte) string {
 	return "pending"
 }
 
-// The two-file rule (RESOLUTION §5). paired.v1 is the sorted list of
-// paired keys. relay.v1 holds the grants as they will be after a change,
-// and the SHA-256 of paired.v1 before and after it.
+// The two-file rule (RESOLUTION §5; RELAY_PROPOSAL.md §6.1). paired.v1 is
+// the sorted list of paired keys, each with the count of its pairings,
+// which stands for the name and scopes gatewayd rewrites when a known key
+// pairs again. relay.v1 holds the grants before and after a change, and
+// the SHA-256 of paired.v1 before and after it.
 
 type relayFile struct {
-	Grants []string `json:"grants"`
-	Before string   `json:"paired_before"`
-	After  string   `json:"paired_after"`
+	GrantsBefore []string `json:"grants_before"`
+	GrantsAfter  []string `json:"grants_after"`
+	Before       string   `json:"paired_before"`
+	After        string   `json:"paired_after"`
+}
+
+type pairedEntry struct {
+	Key      string `json:"key"`
+	Pairings int    `json:"pairings"`
 }
 
 func hexList(set map[[32]byte]bool) []string {
@@ -437,9 +447,21 @@ func hexList(set map[[32]byte]bool) []string {
 	return l
 }
 
-func pairedBytes(set map[[32]byte]bool) []byte {
-	b, _ := json.Marshal(map[string][]string{"paired": hexList(set)})
+func pairedBytes(set map[[32]byte]bool, pairings map[[32]byte]int) []byte {
+	l := []pairedEntry{}
+	for _, h := range hexList(set) {
+		k, _ := wire.ParseHex32(h)
+		l = append(l, pairedEntry{Key: h, Pairings: pairings[k]})
+	}
+	b, _ := json.Marshal(map[string][]pairedEntry{"paired": l})
 	return append(b, '\n')
+}
+
+// PairedFile is paired.v1's content (tests).
+func PairedFile(b []byte) ([]pairedEntry, error) {
+	var f struct{ Paired []pairedEntry }
+	err := json.Unmarshal(b, &f)
+	return f.Paired, err
 }
 
 func digest(b []byte) string {
@@ -480,14 +502,15 @@ func writeSync(dir, name string, data []byte) error {
 func (u *Unit) readPaired() []byte {
 	b, err := os.ReadFile(filepath.Join(u.Dir, "paired.v1"))
 	if err != nil {
-		return pairedBytes(nil)
+		return pairedBytes(nil, nil)
 	}
 	return b
 }
 
-// changeLocked moves to paired and grants: relay.v1 first, then paired.v1
-// if the list changed. A grant counts only for a paired key. u.mu is held.
-func (u *Unit) changeLocked(paired, grants map[[32]byte]bool) error {
+// changeLocked moves to paired, grants and pairings: relay.v1 first, with
+// the grants before and after, then paired.v1 if it changed. A grant
+// counts only for a paired key. u.mu is held.
+func (u *Unit) changeLocked(paired, grants map[[32]byte]bool, pairings map[[32]byte]int) error {
 	for k := range grants {
 		if !paired[k] {
 			delete(grants, k)
@@ -495,8 +518,15 @@ func (u *Unit) changeLocked(paired, grants map[[32]byte]bool) error {
 	}
 	if u.Dir != "" {
 		before := u.readPaired()
-		after := pairedBytes(paired)
-		rf, _ := json.Marshal(relayFile{Grants: hexList(grants), Before: digest(before), After: digest(after)})
+		after := pairedBytes(paired, pairings)
+		was := clone(u.Remote)
+		for k := range was {
+			if !u.Paired[k] {
+				delete(was, k)
+			}
+		}
+		rf, _ := json.Marshal(relayFile{GrantsBefore: hexList(was), GrantsAfter: hexList(grants),
+			Before: digest(before), After: digest(after)})
 		if err := writeSync(u.Dir, "relay.v1", rf); err != nil {
 			return err
 		}
@@ -509,7 +539,7 @@ func (u *Unit) changeLocked(paired, grants map[[32]byte]bool) error {
 			}
 		}
 	}
-	u.Paired, u.Remote = paired, grants
+	u.Paired, u.Remote, u.pairings = paired, grants, pairings
 	return nil
 }
 
@@ -523,25 +553,34 @@ func clone(m map[[32]byte]bool) map[[32]byte]bool {
 	return c
 }
 
-// Load reads paired.v1 and relay.v1 as gatewayd does at start: if the
-// digest of paired.v1 is relay.v1's "after" or "before", the grants
-// recorded count, for keys present in paired.v1; if it is neither, every
-// grant is dropped and Notice says so.
+func cloneCounts(m map[[32]byte]int) map[[32]byte]int {
+	c := make(map[[32]byte]int, len(m))
+	for k, v := range m {
+		c[k] = v
+	}
+	return c
+}
+
+// Load reads paired.v1 and relay.v1 as gatewayd does at start. If the
+// digest of paired.v1 is relay.v1's "after", the grants after count; if it
+// is "before", the change was interrupted and did not happen, and the
+// grants before count; if it is neither, every grant is dropped and Notice
+// says so. Grants count only for keys present in paired.v1.
 func (u *Unit) Load() error {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	pb := u.readPaired()
-	var pf struct{ Paired []string }
-	if err := json.Unmarshal(pb, &pf); err != nil {
+	entries, err := PairedFile(pb)
+	if err != nil {
 		return err
 	}
-	paired := map[[32]byte]bool{}
-	for _, h := range pf.Paired {
-		k, ok := wire.ParseHex32(h)
+	paired, pairings := map[[32]byte]bool{}, map[[32]byte]int{}
+	for _, e := range entries {
+		k, ok := wire.ParseHex32(e.Key)
 		if !ok {
 			return errors.New("fake: paired.v1")
 		}
-		paired[k] = true
+		paired[k], pairings[k] = true, e.Pairings
 	}
 	grants := map[[32]byte]bool{}
 	u.Notice = ""
@@ -550,17 +589,22 @@ func (u *Unit) Load() error {
 		if err := json.Unmarshal(rb, &rf); err != nil {
 			return err
 		}
-		if d := digest(pb); d == rf.After || d == rf.Before {
-			for _, h := range rf.Grants {
-				if k, ok := wire.ParseHex32(h); ok && paired[k] {
-					grants[k] = true
-				}
-			}
-		} else {
+		var use []string
+		switch d := digest(pb); d {
+		case rf.After:
+			use = rf.GrantsAfter
+		case rf.Before:
+			use = rf.GrantsBefore
+		default:
 			u.Notice = "Remote access was turned off for every phone because the paired list changed"
 		}
+		for _, h := range use {
+			if k, ok := wire.ParseHex32(h); ok && paired[k] {
+				grants[k] = true
+			}
+		}
 	}
-	u.Paired, u.Remote = paired, grants
+	u.Paired, u.Remote, u.pairings = paired, grants, pairings
 	return nil
 }
 
@@ -574,7 +618,7 @@ func (u *Unit) SetRemote(phone [32]byte, on bool) (bool, error) {
 	} else {
 		delete(grants, phone)
 	}
-	err := u.changeLocked(clone(u.Paired), grants)
+	err := u.changeLocked(clone(u.Paired), grants, cloneCounts(u.pairings))
 	s := u.sessions[phone]
 	u.mu.Unlock()
 	if err != nil {
@@ -590,10 +634,11 @@ func (u *Unit) SetRemote(phone [32]byte, on bool) (bool, error) {
 // key, every session of it closes, then the snapshot goes out.
 func (u *Unit) Revoke(phone [32]byte) (bool, error) {
 	u.mu.Lock()
-	paired, grants := clone(u.Paired), clone(u.Remote)
+	paired, grants, pairings := clone(u.Paired), clone(u.Remote), cloneCounts(u.pairings)
 	delete(paired, phone)
 	delete(grants, phone)
-	err := u.changeLocked(paired, grants)
+	delete(pairings, phone)
+	err := u.changeLocked(paired, grants, pairings)
 	s := u.sessions[phone]
 	u.mu.Unlock()
 	if err != nil {
@@ -663,14 +708,15 @@ func (u *Unit) SendRaw(m wire.Msg) error { return u.send(m) }
 func (u *Unit) approve(phone [32]byte) (string, bool) {
 	u.mu.Lock()
 	remote := u.approveRm
-	paired, grants := clone(u.Paired), clone(u.Remote)
+	paired, grants, pairings := clone(u.Paired), clone(u.Remote), cloneCounts(u.pairings)
 	paired[phone] = true
+	pairings[phone]++ // a known key pairing again rewrites its entry too
 	delete(grants, phone)
 	if remote {
 		grants[phone] = true
 	}
-	changed := remote != u.Remote[phone]
-	err := u.changeLocked(paired, grants)
+	u.lostGrant = !remote && u.Remote[phone]
+	err := u.changeLocked(paired, grants, pairings)
 	if err == nil {
 		u.token = nil
 	}
@@ -678,18 +724,27 @@ func (u *Unit) approve(phone [32]byte) (string, bool) {
 	if err != nil {
 		return "", false // a crash: no answer
 	}
-	confirmed := false
-	if changed || remote {
-		confirmed, _ = u.SendAdmit()
-	}
-	u.send(&wire.PairSlot{})
-	switch {
-	case !remote:
+	if !remote {
+		// Answered first (RELAY_PROPOSAL.md §6.1): a known key that loses
+		// its grant here is dropped from the snapshot that follows, and the
+		// relay then ends its splice.
 		return "paired", true
-	case confirmed:
+	}
+	confirmed, _ := u.SendAdmit()
+	u.send(&wire.PairSlot{})
+	if confirmed {
 		return "paired remote admitted", true
 	}
 	return "paired remote pending", true
+}
+
+// afterApprove is what follows the answer of a pairing without remote:
+// the window's slot is cleared, and a lost grant reaches the relay.
+func (u *Unit) afterApprove(lostGrant bool) {
+	u.send(&wire.PairSlot{})
+	if lostGrant {
+		u.SendAdmit()
+	}
 }
 
 func (u *Unit) handleInvite(inv wire.Invite) {
@@ -745,12 +800,15 @@ func (u *Unit) handleInvite(inv wire.Invite) {
 	switch {
 	case u.Paired[phone] && u.Remote[phone]:
 		hello = "hello paired relay=" + u.relayStateLocked(phone)
+	case u.token != nil:
+		// The relay candidate of a window that allows the relay: a new
+		// key, or a known one pairing again.
+		hello = "hello candidate"
 	case u.Paired[phone]:
 		// A relay session of a paired phone without remote: whatever the
 		// relay admitted, the gateway closes it (rule 32).
-	case u.token != nil:
-		hello = "hello candidate"
 	}
+	mayPair := u.token != nil // a known key may pair again during a window
 	if hello != "" {
 		if old := u.sessions[phone]; old != nil {
 			old.Close() // a phone's new session replaces its older one
@@ -784,7 +842,7 @@ func (u *Unit) handleInvite(inv wire.Invite) {
 			if _, err := inner.Write([]byte(line[5:] + "\n")); err != nil {
 				return
 			}
-		case hello == "hello candidate" && strings.HasPrefix(line, "pair "):
+		case mayPair && strings.HasPrefix(line, "pair "):
 			tok, err := base64.RawURLEncoding.DecodeString(line[5:])
 			u.mu.Lock()
 			ok := err == nil && u.token != nil && subtle.ConstantTimeCompare(tok, u.token) == 1
@@ -796,6 +854,12 @@ func (u *Unit) handleInvite(inv wire.Invite) {
 			answer, ok := u.approve(phone)
 			if ok {
 				inner.Write([]byte(answer + "\n"))
+				if answer == "paired" {
+					u.mu.Lock()
+					lost := u.lostGrant
+					u.mu.Unlock()
+					u.afterApprove(lost)
+				}
 			}
 			return
 		default:
