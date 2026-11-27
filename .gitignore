@@ -322,3 +322,5 @@ BUILD_ID
 # Relay Nine foreground audio effects owner
 /tools/audio-effects/pos-audio-effects
 /services/gatewayd/gatewayd
+/relay/doors-relay
+/relay/lying-relay

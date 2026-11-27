@@ -339,6 +339,33 @@ PATH=$HOME/tools/node/bin:$HOME/tools/npm/bin:$PATH tools/design/gen_rift_emoji.
 The shell's CMake project enables ASM for `rift_emoji_px.S`, which embeds the
 pixels with `.incbin`.
 
+## DOORS Relay (Go, host only)
+
+The relay of ADR-019 amendment 3 (`relay/`, `docs/api/relay.md`) is a Go
+program for the operator's own host. It never runs on a unit, and nothing in
+the image or the app depends on it.
+
+| Item | Value | Evidence |
+| --- | --- | --- |
+| Go | **1.27.4** linux/amd64, installed inside WSL 2026-11-27 with the owner's approval | VERIFIED |
+| Where | `~/sdk/go1.27.4` in WSL, from the official `go1.27.4.linux-amd64.tar.gz` of go.dev/dl, SHA-256 `7226736c2339719cda28fbf3a54d71aa63bcefe376e98cef00034268dab24840` checked against go.dev's list. No apt package (Ubuntu 22.04's is 1.18, too old), no Windows install, no PATH change outside that folder | VERIFIED |
+| Module | `relay/go.mod`, `go 1.24.0` (the first release with `crypto/hkdf`), standard library only. No `go.sum` because there is no dependency | VERIFIED |
+| Tested with | 1.27.4 only; 1.24 itself was not run (`go vet`'s stdversion check passed) | VERIFIED / ASSUMED |
+
+Inside WSL, with the toolchain pinned and no network for modules:
+
+```sh
+export PATH=$HOME/sdk/go1.27.4/bin:$PATH GOTOOLCHAIN=local GOPROXY=off
+cd /mnt/c/K230/relay
+go vet ./... && go test -race ./...
+go test -run='^$' -fuzz='^FuzzFrames$' -fuzztime=60s ./internal/wire/   # and FuzzStart, FuzzEndorsement
+go build -o doors-relay ./cmd/doors-relay
+```
+
+`-race` needs cgo and the WSL `gcc` (11.4). From Git Bash, pipe a script into
+`wsl.exe -- bash -s` rather than passing `bash -lc '...'`: the latter loses
+`$VAR` expansions (a download landed in the working directory that way).
+
 ## Test
 
 Native, inside WSL (needs `libcjson-dev`, installed 2026-09-04, and
