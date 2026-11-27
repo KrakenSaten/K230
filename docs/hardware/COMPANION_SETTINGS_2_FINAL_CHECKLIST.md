@@ -4,6 +4,10 @@ This is the remainder of `COMPANION_SETTINGS_2_GATE.md`. Section 11.2 holds
 everything that already passed on 2026-11-27, and that evidence is reused
 here, not repeated. Mark each check PASS or FAIL with the time (UTC).
 
+**Result (2026-11-27): F1 to F4 PASS on Unit A** (Unit B was unavailable),
+with the owner present. The record is gate section 11.5. The boxes below
+are ticked for that run; where they say Unit B, read Unit A.
+
 **The state these checks start from:**
 - Unit B runs build `d189c2c1`, the tested build, and needs no reinstall.
   This PR's code is the same at the current head `0d1174d5` (gate 11.3).
@@ -50,9 +54,9 @@ Why it is mandatory: S5 rebooted with no phone paired, so nothing listened
 afterwards (`no_clients`). A phone reconnecting through the new S70gatewayd
 has not been seen.
 
-- [ ] With the gateway on and the app Open, reboot Unit B. Let it rejoin the
+- [x] With the gateway on and the app Open, reboot Unit B. Let it rejoin the
   hotspot; that took 2 min 25 s once today.
-- [ ] Expected:
+- [x] Expected:
   - the gateway is on, with the same unit key (`7810 B639 41A1 1FE9`);
   - the Flip8 is in the unit's list with the same permissions;
   - the app is Open again **by itself**: no new pairing, same pin ("Try now"
@@ -65,18 +69,18 @@ has not been seen.
 Why it is mandatory: it is a security control of this PR's page. Only giving
 a permission has been seen on hardware (gate 11.2).
 
-- [ ] On the Flip8's page on Unit B, switch **PacketShark control** off while
+- [x] On the Flip8's page on Unit B, switch **PacketShark control** off while
   the app is Open.
-- [ ] Expected: the app's PacketShark room shows "Capture control: Not
+- [x] Expected: the app's PacketShark room shows "Capture control: Not
   granted" from its next request, and no start request is taken.
-- [ ] Switch it back on: "Granted" again.
+- [x] Switch it back on: "Granted" again.
 
 ## F3. Removal (gate A8)
 
 Why it is mandatory: it is the revocation control of this PR's page.
 
-- [ ] REMOVE PHONE on the Flip8's page, and confirm.
-- [ ] Expected:
+- [x] REMOVE PHONE on the Flip8's page, and confirm.
+- [x] Expected:
   - the app says **"Removed: The unit says this phone was removed"**;
   - the Flip8 is no longer in the unit's list;
   - "Try now" does not get the phone back in.
@@ -86,11 +90,11 @@ Why it is mandatory: it is the revocation control of this PR's page.
 Why it is mandatory: it is the pairing's safeguard. Today only the YES path
 was recorded. This step also restores the pairing after F3.
 
-- [ ] PAIR A PHONE, then scan with the Flip8.
-- [ ] Leave **"Same key on the phone"** at NO and tap ALLOW: nothing pairs.
-- [ ] Compare the unit's key with the app's "This phone's key", set YES, then
+- [x] PAIR A PHONE, then scan with the Flip8.
+- [x] Leave **"Same key on the phone"** at NO and tap ALLOW: nothing pairs.
+- [x] Compare the unit's key with the app's "This phone's key", set YES, then
   ALLOW.
-- [ ] Expected:
+- [x] Expected:
   - paired with Device status, Read RIFT and Send RIFT messages;
   - PacketShark and Vision off;
   - the list shows the Flip8 `connected`, and the app is Open.
@@ -119,7 +123,7 @@ Each of these is optional for the merge, for the reason given:
 
 ## After
 
-- [ ] Write F0 to F4 into gate section 11.2.
+- [x] Write F0 to F4 into the gate (F0: 11.4; F1 to F4: 11.5).
 - [ ] Unit B: keep the build, or run `RESET_COMPANION.sh` or `RESTORE.sh`
   (gate 6), and move it back to its usual network. Both are the owner's
   choice.

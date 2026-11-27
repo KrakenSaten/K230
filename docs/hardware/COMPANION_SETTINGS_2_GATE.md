@@ -8,12 +8,11 @@
   same Unit B.
 - The merged head (`83c7e8a1`) is built and its focused suites PASS (F0,
   section 11.4).
-- **Four hardware checks are still mandatory before merge:** reboot with a
-  paired phone, taking a permission away, removal, and the key
-  confirmation's NO. They are in
-  [`COMPANION_SETTINGS_2_FINAL_CHECKLIST.md`](COMPANION_SETTINGS_2_FINAL_CHECKLIST.md)
-  (sections 11.3 and 11.4).
-- Unit A was not touched.
+- **The four remaining checks PASS on Unit A** (2026-11-27, owner present;
+  Unit B was unavailable): reboot with a paired phone, taking a permission
+  away, removal, and the key confirmation's NO (section 11.5).
+- Unit A got only this PR's shell, sysd, gatewayd and `S70gatewayd`, with
+  its own rollback; Unit B was not touched in that session.
 
 - **What is under test:** draft PR #190 (`claude/companion-settings-2-aad748`),
   ADR-019 amendment 2. The owner accepted it on 2026-11-25 with its three
@@ -585,11 +584,69 @@ Only these, in
 
   None of them failed, and no new warning appeared. The logs are in
   `C:\K230-artifacts\companion-settings-2\f0-83c7e8a1\`.
-- F1, a reboot with a paired phone (A9, U5).
-- F2, taking a permission away from a connected phone (A7).
-- F3, removal (A8).
-- F4, the key confirmation's NO, as part of pairing again (A2).
+- F1, a reboot with a paired phone (A9, U5): **PASS on Unit A** (11.5).
+- F2, taking a permission away from a connected phone (A7): **PASS on Unit A**.
+- F3, removal (A8): **PASS on Unit A**.
+- F4, the key confirmation's NO, as part of pairing again (A2): **PASS on Unit A**.
 
 Everything else NOT TESTED above is optional for the merge. The reasons are
 in that checklist. The fresh-card test (10.3) belongs before a release, not
 before this merge.
+
+### 11.5 F1 to F4 on Unit A, with the owner present, 2026-11-27 (times UTC)
+
+Unit B was unavailable, so the four remaining checks ran on **Unit A**, by
+the owner's decision. Unit B was not touched, and nothing of Unit B's
+identity, credentials or configuration was put on Unit A.
+
+**Unit A as found (VERIFIED, read-only, 16:41Z):** wlan0
+`88:3b:dc:b7:9e:c7` (Unit A), 192.168.10.171 on the home Wi-Fi; master
+`1fef813b`'s shell (`d1aabd5e…`) on the 0.4.0 card with the 0.5.0 files;
+no gatewayd, no `S70gatewayd`, no `/etc/default/gatewayd`; Companion state
+from 2026-11-21 in `/var/lib/pocketos/gatewayd` (its unit key, and one
+earlier pairing of an SM-F776B, key `9839 F954…`); root already has a
+password hash; `sshd -T`: `permitrootlogin without-password`; no
+`authorized_keys`, so the unit was reached over the serial console (COM5)
+only.
+
+**Build and kit:**
+- `7a765d83` (the code of `83c7e8a1`, F0) cross-built for riscv64 against
+  the Doors 0.5.0 release SDK sysroot, production flags as `pocketos.mk`
+  (`ENABLE_GATEWAYD=1`, DRM shell, sysroot LVGL), stripped as Buildroot
+  strips: doors-shell `1f03261c…`, sysd `2cb2381e…`, gatewayd `5a14f96a…`,
+  `S70gatewayd` `dd70d3a7…`. Unit A's libraries define `XCRYPT_2.0`,
+  `crypt_gensalt_rn`, `OPENSSL_3.0.0`, `GLIBC_2.28` and `GLIBC_2.33`.
+- Only these four files were installed; the other services keep master's
+  binaries (this PR's `pocketipc` change only wipes buffers; the protocol is
+  unchanged). No flashing.
+- Kit `kit.tar.gz` `8cd494b6…`, fetched by the unit over the LAN from the
+  bench PC and checked with `sha256sum -c`. Scripts and logs:
+  `C:\K230-artifacts\companion-settings-2-unit-a\`.
+- **Rollback:** `/root/rollback-cs2-7a765d83/` (0700; `RESTORE.sh`): the old
+  shell and sysd, the paths the install or Settings add, `/etc` in full,
+  copies of `shadow`, `passwd` and `sshd_config`, and the gateway state as
+  found. The copy of `shadow` stays on the unit; only non-secret metadata
+  was copied to the PC.
+- **Install, 17:16Z:** status 0. `shadow`, `passwd` and `sshd_config`
+  unchanged; no gatewayd running, 47231 closed;
+  `companion.status`: `installed: true, enabled: false, password_set: true,
+  ssh: "hardened"`. Vision models and settings untouched.
+
+**The phone:** the owner's Flip8 (SM-F776B), its Companion app as installed
+(per this checklist APK `ec50c2c1…`; not re-read here, as the phone was not
+on ADB), on the same home Wi-Fi. Its phone key starts `C5D4 DCF0 CC0D 6E4D`.
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| Switch on | **PASS** | Settings > Companion switched the gateway on: `GATEWAYD_ENABLE=1` written by sysd, `gateway.status` `listening: true` on 192.168.10.171:47231, build `7a765d83` |
+| First pairing (the order had to change on Unit A: F1 needs a paired phone) | PASS, with a note | Paired 17:19:40Z (`c5d4dcf0cc0d6e4d`). The owner switched PacketShark and Vision on in the sheet on purpose, for F2. The NO tap's outcome was not watched, so it does not count for F4 |
+| **F1**, reboot with a paired phone (A9, U5) | **PASS** | Reboot 17:21:38Z with the Flip8's session established. Afterwards the app was **Open by itself**, with no new pairing and the same pin; the unit's list showed the Flip8 with the same permissions (owner). `gateway.status` was not read after the reboot: the serial console was at its login prompt |
+| **F2**, taking a permission away (A7) | **PASS** | PacketShark control off on the Flip8's page with the app Open: the PacketShark room said "Capture control: Not granted". On again: "Granted" (owner) |
+| **F3**, removal (A8) | **PASS** | REMOVE PHONE on the `C5D4…` entry: the app said "Removed: The unit says this phone was removed"; the entry left the list; "Try now" did not get back in (owner) |
+| **F4**, the key confirmation's NO (A2), pairing again | **PASS** | Sheet defaults: Device status, Read RIFT and Send RIFT on, PacketShark and Vision **off**. ALLOW with "Same key on the phone" at NO paired nothing; YES then ALLOW paired; the list showed the Flip8 `connected`, the app Open (owner) |
+
+The earlier pairing (`9839 F954…`) was left on Unit A, as found.
+
+**State after the gate:** Unit A keeps this build with the gateway on and
+the Flip8 paired. `RESTORE.sh` was not run; it returns Unit A to master's
+shell and sysd, no gatewayd, and the gateway state of 2026-11-21.
