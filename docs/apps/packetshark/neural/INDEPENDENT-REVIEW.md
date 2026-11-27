@@ -137,7 +137,7 @@ Not worth more compute: a neural window detector on telemetry (latency was never
 
 ## 10. Corrections the PR text needs
 
-**Status:** applied on 25 November 2026, except the last one. The changed passages are marked "revised" in each document. The research report `poc/K1-UNIT-A.md` was corrected the same way at `7e757cb9`, with its measurements unchanged. The recommendations in §5, §8 and §9 are not adopted; they await the owner.
+**Status:** applied on 25 November 2026, except the last one. The changed passages are marked "revised" in each document. The research report `poc/K1-UNIT-A.md` was corrected the same way at `7e757cb9`, with its measurements unchanged. The recommendations in §5, §8 and §9 were adopted by the owner on 27 November 2026 as architecture and research priorities, not as authorization for any experiment or implementation ([HANDOVER.md](HANDOVER.md) §2 and §5). The review's verdicts are unchanged: K2 as specified NO-GO, P6 INCONCLUSIVE, P7 pending (not tested).
 
 - "About 2,000 times" (NEURAL.md, EXPERIMENTS, ROADMAP): state the baseline's nature or give the fair range.
 - "P6 PASS at the available resolution": make it INCONCLUSIVE.

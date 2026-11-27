@@ -2,6 +2,8 @@
 
 **Research for owner review · 24 November 2026 · no model is shipped, no dataset was downloaded.** This lists what each detector would be built from, what it must beat, and what its training data would allow us to ship. The underlying desk research, with every source, is on the research branch ([R1–R6 notes](#sources)). Licence findings are research, not legal advice; the "ship weights" column uses a conservative allowlist (CC0, CC BY, MIT, MIT-0, explicit redistribution grants) because whether trained weights derive from their data is legally unsettled.
 
+**Status on 27 November 2026.** Decision D6 is accepted: the allowlist above, a NOTICE entry and a model card (§5) per weight file are policy, and nothing ships before G3 (and G4 for a KPU backend). The legal reviews it names are still to do. The model recommendations of the independent review ([INDEPENDENT-REVIEW.md](INDEPENDENT-REVIEW.md) §6) are adopted as research priorities: no dataset is downloaded and no model is trained on the strength of this record. The name-shape scorer is NO-GO (review §8), and a KPU backend for any model needs G4-N.
+
 ## 1. Candidates by capability
 
 Ordered by the roadmap. "Baseline" is the cheapest method a candidate must beat on held-out sites at the same false-alert budget before it is admitted (gate G3). "KPU" says whether an accelerator could matter at all, from E1/E2 and R1.

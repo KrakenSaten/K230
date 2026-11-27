@@ -2,6 +2,8 @@
 
 **Run on 24 November 2026 on the build host** (Intel i7-1265U, WSL Ubuntu 22.04). The pinned Vision AI environment was used unchanged: nncase 2.11.0 with nncase-kpu 2.11.0, torch 2.1.2+cpu, onnx 1.16.2, onnxruntime 1.18.1. No unit was touched, no dataset was downloaded and no package was added. The one exception is the K1 section at the end: an owner-authorized run on Unit A on 25 November 2026.
 
+**Status on 27 November 2026.** The results below stand as corrected after the independent review. Redoing E3a honestly (a noisy, lagged coverage signal, faults inside gaps, 10 seeds) and the CESNET study for Traffic DNA are adopted as research priorities ([INDEPENDENT-REVIEW.md](INDEPENDENT-REVIEW.md) §8, §9); neither is authorized by this record. Until E3a is redone, no document cites its gate figures.
+
 Scripts, result JSON and the desk research are on the branch `research/packetshark-neural-lab` at [`29e1e8c`](https://github.com/KrakenSaten/K230/tree/29e1e8cc/research/packetshark-neural), under `research/packetshark-neural/`. Kmodels, ONNX files, bench inputs and binaries are in `C:\K230-artifacts\packetshark-neural\`, with `SHA256SUMS.txt`.
 
 **How to read the numbers.**

@@ -1,6 +1,6 @@
 # PacketShark NEURAL: proof of concept, gates and roadmap
 
-**Proposal for owner review, 24 November 2026; K1 result added 25 November 2026.** Nothing on this page has been authorized except the K1 bench, which ran on Unit A without P7 (§1). Each phase that touches a unit needs its own approval. Budgets are in [ENGINE.md](ENGINE.md#8-budgets); evidence for the numbers is in [EXPERIMENTS.md](EXPERIMENTS.md).
+**Proposal for owner review, 24 November 2026; K1 result added 25 November 2026; order and gates adopted 27 November 2026.** On 27 November 2026 the owner adopted the independent review's order and gates (§3) as priorities. Nothing on this page has been authorized except the K1 bench, which ran on Unit A without P7 (§1). Each phase that runs an experiment, touches a unit or adds code needs its own approval. Budgets are in [ENGINE.md](ENGINE.md#8-budgets); evidence for the numbers is in [EXPERIMENTS.md](EXPERIMENTS.md).
 
 ## 1. The first KPU proof of concept
 
@@ -69,7 +69,7 @@ Unit B is preferred, because Unit A is the owner's daily unit. The bench needs s
 | Duty cycle (P9) | no growth of RSS or CMA beyond noise over 10 minutes |
 | Exclusivity (P10) | the second instance refuses and leaves the first unaffected |
 
-**If GO:** build `pos-infer` (phase K2) with the nncase, reference and fake backends.
+**If GO:** build `pos-infer` (phase K2) with the nncase, reference and fake backends. (Superseded on 27 November 2026: K2 as specified is NO-GO, and the adopted architecture puts a CPU backend first; §3.)
 
 **If NO-GO on latency or memory:** conversation resemblance runs on the C reference. It then works at a lower rate, for example every 5 s, and only while the WHO lens is open. The KPU stays with Vision. This is an acceptable outcome. The engine was designed to be complete without a scorer.
 
@@ -106,11 +106,12 @@ Every gate is measured. A gate that has not been run counts as not passed.
 
 | Gate | What it protects | Pass when |
 | --- | --- | --- |
-| **G0 Visibility honesty** | the brief's first question: slow replies vs missing visibility | On replayed fixtures with injected HOLD, capture loss and one-way visibility: **≥ 99 % of affected intervals produce no PROBLEM claim**. Each such interval shows CAN'T TELL with its reason. Every cited packet resolves or reads "packet expired". (Synthetic E3a cannot supply a figure here: its generator hands the gate the ground truth, and no fault overlaps a gap (review F7). The review also recommends a recall-under-loss clause, because always abstaining would pass this gate as written.) |
+| **G0 Visibility honesty** | the brief's first question: slow replies vs missing visibility | On replayed fixtures with injected HOLD, capture loss and one-way visibility: **≥ 99 % of affected intervals produce no PROBLEM claim**. Each such interval shows CAN'T TELL with its reason. Every cited packet resolves or reads "packet expired". (Synthetic E3a cannot supply a figure here: its generator hands the gate the ground truth, and no fault overlaps a gap (review F7). The review also recommends a recall-under-loss clause, because always abstaining would pass this gate as written. Adopted on 27 November 2026 with loss-aware estimation in place of the binary gate (INDEPENDENT-REVIEW §5): the clause's threshold is to be set before G0 is first run.) |
 | **G1 Cost** | the capture itself | `pos-capture bench`: ≤ +150 ns per frame. Helper ≤ +1 % of the hart at 2,000 pps on Unit B, shell ≤ +0.5 %. RSS within ADR-016's 32 MiB. No new kernel drops at the line-rate gate's rate. |
 | **G2 Usefulness to people** | that a mark helps someone diagnose | Same shuffled cases, current SIGNALS workflow against the INSIGHT sheets (simulator or mockups, portrait and Large text). Time to the correct evidence improves. Confident wrong answers do not increase. ≥ 90 % of participants notice a visibility gap. Quiet captures are included. |
 | **G3 Model admission** | against models that only fit their training data | Consented corpus, leave-site-out, thresholds frozen before one test run: **≥ 10 points more precision than the best deterministic baseline at equal false alerts per observed hour**. The interval across sites must exclude 0, and no held-out fault family may lose. Also: ≤ 0.2 false alerts per observed hour per detector family (upper Poisson bound, which needs ≥ 15 benign hours), and ≤ 5 % errors among accepted findings (Wilson upper bound). Learned weights over rules must be non-negative. |
 | **G4 KPU admission** | the capture, memory, Vision | §1 above |
+| **G4-N KPU necessity** (adopted 27 Nov 2026, INDEPENDENT-REVIEW §3) | the accelerator line against building for its own sake | A KPU backend is admitted only for a model that has passed G3 and cannot meet its rate on the CPU backend within the helper's budget |
 | **G5 Replay parity** | determinism; fixtures that mean something | The ledger of a live session equals the ledger of a virtual-clock replay of its saved file, for every observation the HEADERS file can support. On the host first, then on a unit. |
 | **G6 Field precision** | trust in accepted claims | On a frozen golden set of real incidents from the bench corpus: errors among accepted claims ≤ 5 % (Wilson upper bound) at coverage ≥ 60 %. The resolver/path/local confusion matrix is published. |
 | **G7 Lead time** | the word "early" | Before any "early warning" wording: median lead ≥ 15 s at precision ≥ 0.7, beating persistence and a current-value threshold in a paired bootstrap by site. Until then the product says "trend". |
@@ -121,23 +122,25 @@ Phases N1–N4 are the product line. K1–K3 are the accelerator line, and K1 ca
 
 | Phase | Scope | Exit gates | Needs |
 | --- | --- | --- | --- |
-| **N0 Decide** (now) | This package; owner decisions D1–D8; independent review | owner's answers | — |
-| **N1 Engine and WHEN on the CPU** | Series keyed by packet time, ledger, visibility gate, before/after, MARK and laps, the `intel` line and `ledger` pages (protocol 6), the INSIGHT row and face, the `SEEING:` chip. For the host: a scripted scenario source (faults and visibility artifacts) and virtual-clock file replay. Lint rules for the new tables | G0, G1 (host bench, then Unit B), G5 (host) | DS §59 amendment for MARK; Unit B time for G1 |
+| **N0 Decide** | This package; owner decisions D1–D10; independent review. **Done 27 November 2026:** D1–D10 accepted as recommended, the review's architecture and order adopted (HANDOVER §2 and §5) | owner's answers | — |
+| **N1.0 MARK and evidence** (the owner's reduced slice, done) | MARK on LIVE; the minute before and after a mark; DHCP, ARP and DNS observations with their packets; how much of each window was watched; the capture filter named. CPU only; protocol 6 got `mark` and `evid` ([PACKETSHARK.md](../../PACKETSHARK.md) §4d) | host suites; Unit A on 25 and 26 November 2026, by the owner's fingers on 26 November (§9.16 there) | merged by pull request #188 (master `ff95ab99`) |
+| **N1 Engine and WHEN on the CPU** (the rest, not built) | Series keyed by packet time, ledger, visibility gate, before/after, MARK and laps, the `intel` line and `ledger` pages (protocol 6), the INSIGHT row and face, the `SEEING:` chip. For the host: a scripted scenario source (faults and visibility artifacts) and virtual-clock file replay. Lint rules for the new tables | G0, G1 (host bench, then Unit B), G5 (host) | DS §59 amendment for the INSIGHT face; Unit B time for G1 |
 | **N2 Study** | The brief's experiment 2 on the N1 simulator build | G2 | participants; consent |
 | **N3 WHO** | Name binding, Presence DNA (rules seeded from a licence-clean fingerprint list), rhythm, exposure | G0 and G1 again; rhythm claims respect the E3c minimum counts | licence review of the seed list and OUI names |
 | **N4 WHY** | Doctor v1 (hypothesis graph, LR ≥ 10, CAN'T TELL, TO BE SURE), join watch, integrity check | G0, G6 on the golden set | bench corpus |
 | **K1 KPU bench** | §1, research kit only. **Done on Unit A on 25 Nov 2026 except P7**: five of seven G4 criteria pass, P6 is inconclusive | G4 (P6 and P7 open) | authorization for the amended P7 session on Unit B (INDEPENDENT-REVIEW §7) |
-| **K2 Scorer helper** | `pos-infer` with nncase, ref and fake backends; KPU lock shared with Vision; DNA encoder; resemblance in WHO | G1 with the scorer active; G4 again from the helper | D4 (ADR-016 amendment: the capture helper may start one scorer child) and a Vision ADR note for the shared lock |
+| **K2 Scorer helper** | `pos-infer` with nncase, ref and fake backends; KPU lock shared with Vision; DNA encoder; resemblance in WHO | G1 with the scorer active; G4 again from the helper | **NO-GO as specified** (INDEPENDENT-REVIEW §8, adopted 27 November 2026). Reopen only when G4-N holds and D9 has given WHO real input; then as a supervised single-owner service, not a child of the capture helper |
+| **C1 CPU scorer backend** (adopted 27 Nov 2026) | the scorer contract; a fixed-point CPU backend inside the analyst tick, under a time budget; one backend pinned per session | the optimized kernel meets the tick budget on the unit | after N1; its own authorization |
 | **K3 Name shape** | the character CNN as salience | G3, G4 | D1 |
 | **R Research** | consented bench corpus; G3 evaluations; CESNET-trained DNA projection; trend/nowcast with netd station counters; promiscuous-mode reversion test for mirror-port mode | G3, G7 | corpus consent; separate ADR-016 decision for promiscuous mode |
 
 **Order of value.** N1 alone answers the brief's first question on the unit, with no model and no new process. N1 and N3 together give a field technician presence, named conversations and laps, which no handheld in the landscape survey (R5) offers passively. K1 is cheap and independent, and it settles the accelerator question with measurements instead of opinions.
 
-**Disputed by the independent review.** The table above is the original proposal. The review recommends not starting K2 as specified, putting the promiscuous-mode test (D9) and a real-data study ahead of any accelerator work, and building a CPU scorer backend first ([INDEPENDENT-REVIEW.md](INDEPENDENT-REVIEW.md) §5, §8 and §9). The owner has not decided between the two orders.
+**Adopted order (27 November 2026).** The owner adopted the independent review's order ([INDEPENDENT-REVIEW.md](INDEPENDENT-REVIEW.md) §9) over the original one above: decide F1; measure the unit's own evidence per minute and schedule D9; the amended P7 session on Unit B; redo E3a on the host; the CESNET study for Traffic DNA on the host; the rest of N1; the CPU scorer backend (C1); the KPU only under G4-N. K2 as specified is NO-GO. These are priorities, not authorizations.
 
 ## 4. Smallest next steps
 
-1. Owner answers D1–D8 ([HANDOVER.md](HANDOVER.md)). The answers decide the scope of N1 and of K2.
-2. Independent review of the items listed in HANDOVER §3. Done on 25 November 2026 for the K1 measurements, the experiments and the architecture ([INDEPENDENT-REVIEW.md](INDEPENDENT-REVIEW.md)). The owner's answers to its GO/NO-GO table (§8) come next.
+1. Owner answers D1–D10 ([HANDOVER.md](HANDOVER.md)). **Done on 27 November 2026:** accepted as recommended.
+2. Independent review of the items listed in HANDOVER §3. Done on 25 November 2026 for the K1 measurements, the experiments and the architecture ([INDEPENDENT-REVIEW.md](INDEPENDENT-REVIEW.md)). **Its GO/NO-GO table (§8) and order (§9) were adopted on 27 November 2026.** Reviews A, C, D, F and G remain open.
 3. Answer P6 and P7 in one session on Unit B, with the amended protocol in [INDEPENDENT-REVIEW.md](INDEPENDENT-REVIEW.md) §7. It needs its own authorization, and a reboot of Unit B at the end. The original plan (three SIGKILLs read with `CmaFree`) could not have resolved its own quantity.
 4. Write the N1 fixtures before the N1 code: the four replay cases of the first brief (slow paired replies, one-sided replies, HOLD across recovery, loss during a healthy exchange) as scripted scenarios, each with its expected ledger.

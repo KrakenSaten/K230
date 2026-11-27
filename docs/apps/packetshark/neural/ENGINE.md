@@ -2,6 +2,8 @@
 
 **Architecture proposal for owner review · 24 November 2026 · nothing here is implemented.** It serves the three lenses of [NEURAL.md](../NEURAL.md) (WHEN, WHO, WHY) from one engine. Evidence classes follow `AGENTS.md`. Measurements are in [EXPERIMENTS.md](EXPERIMENTS.md); budgets and gates are in [ROADMAP.md](ROADMAP.md).
 
+**Status on 27 November 2026.** The owner adopted the independent review's architecture ([INDEPENDENT-REVIEW.md](INDEPENDENT-REVIEW.md) §5) as direction, without authorizing any implementation: a scorer contract with a CPU backend first, in process, inside the analyst tick and under a time budget; a KPU backend, if one is ever admitted under G4-N, as a supervised single-owner `infer` service rather than a child of `pos-capture`; a deadline and recovery around every KPU call, with every KPU client, Vision included, taking the lock; one backend pinned per session; loss-aware estimation instead of a binary gate; vantage treated as a capability matrix, with LLDP, CDP, STP, router advertisements and IGMP among the plumbing observers. Where §1 and §5 below describe the `pos-infer` child, they are the reviewed proposal and are superseded by that direction. N1.0's evidence history ([PACKETSHARK.md](../../PACKETSHARK.md) §4d) is a separate, smaller implementation; it does not implement this engine.
+
 The engine has one rule above the others: **the engine records what was seen, how much of it was seen, and what it rests on, before it says what it means.** Every later layer reads that record. Nothing writes around it.
 
 ## 1. Where it lives
@@ -56,7 +58,7 @@ A ledger is a set of fixed rings in the helper's memory. It exists for one sessi
 About 90 KiB in all. The rules that make it trustworthy:
 
 1. **A claim needs a deterministic witness.** A claim may cite salience, but it is accepted only when at least one observation from a rule or statistic supports the same wording. A model can say "look here" or "these look alike". It cannot say "the resolver is slow". This is the **two-key rule**: the sheet shows which key turned.
-2. **Coverage travels with every number.** An observation over an interval with known capture loss, HOLD or one-way visibility carries that coverage. The analysts treat a bin below 98 % coverage as no evidence. In E3a, rules without this gate raised alerts on 76 % of capture-drop windows and 90 % of one-way windows; with it, on 2–4 % ([EXPERIMENTS.md](EXPERIMENTS.md), E3a).
+2. **Coverage travels with every number.** An observation over an interval with known capture loss, HOLD or one-way visibility carries that coverage. The analysts treat a bin below 98 % coverage as no evidence. (Revised 27 November 2026: E3a's figures for this gate are constructed, because its generator hands the gate the ground truth and never lets a fault overlap a gap, and they are not cited as evidence until E3a is redone; INDEPENDENT-REVIEW F7 and §8. The adopted direction replaces the binary bin rule with loss-aware estimation; §5 of that review.)
 3. **Several numbers from the same pairs count once.** A median, a p95 and a model score computed from the same DNS pairs are one source of evidence, not three.
 4. **Expiry is visible.** An observation whose packets have left the ring keeps its sequence numbers and says "packet expired". A tap never lands on a newer packet instead.
 5. **Nothing in the ledger is logged or written.** SAVE writes the pcap as today. Saving an evidence card beside it is a separate retention decision (D5).

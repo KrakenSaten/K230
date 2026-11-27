@@ -1,6 +1,15 @@
 # PacketShark NEURAL
 
-**Design study for owner review · revision 2 · based on master `448327d` · 24 November 2026, K1 result 25 November 2026, independently reviewed and corrected 25 November 2026 · nothing implemented, nothing deployed; one owner-authorized, non-destructive bench run on Unit A (K1, without P7); Unit B untouched**
+**Research and architecture record · revision 3 · 27 November 2026.** First written as a design study for owner review (revision 2, based on master `448327d`, 24 November 2026), with the K1 result and an independent review on 25 November 2026. One owner-authorized, non-destructive bench run on Unit A (K1, without P7); Unit B untouched.
+
+**Status on 27 November 2026 (owner's decisions).**
+
+- **N1.0 is implemented and hardware-validated.** It is the owner's reduced first slice of WHEN, not the engine described here: MARK on LIVE, the minute before and after a mark, what the capture saw of DHCP, ARP and DNS in each, how much of each window was watched, the capture filter named, and every observation linked to its packet in PACKETS and INSPECT. CPU only, no model, no ledger, no verdicts, no INSIGHT face ([PACKETSHARK.md](../PACKETSHARK.md) §4d). Merged by [pull request #188](https://github.com/KrakenSaten/K230/pull/188) (master `ff95ab99`, 25 November 2026) and validated on Unit A on 25 and 26 November 2026, the second time by the owner's own fingers (§9.16 there). The wide shape's back target was enlarged afterwards by [pull request #191](https://github.com/KrakenSaten/K230/pull/191) (master `883201e3`), not yet re-checked on the device.
+- **The independent review's CPU-first architecture and its research priorities are adopted** ([INDEPENDENT-REVIEW.md](neural/INDEPENDENT-REVIEW.md) §5, §8 and §9): a scorer contract with a CPU backend first, in process; the KPU re-gated on need (G4-N); the review's order of work.
+- **Decisions D1–D10 are accepted as recommended** ([HANDOVER.md](neural/HANDOVER.md) §2).
+- **Nothing is authorized by this record.** No experiment, test on a unit, download, training or implementation follows from it; each needs its own authorization.
+- **Verdicts unchanged:** K2 as specified is **NO-GO**; the memory criterion P6 is **INCONCLUSIVE**; the SIGKILL criterion P7 is **NOT TESTED**; G4 has not passed.
+- One security finding (F1) is held privately and is not described in these documents.
 
 **Recommendation: one witness, three lenses.** Build one intelligence engine inside the capture helper. It is an evidence ledger fed by cheap observers and guarded by a visibility gate. Present it through three lenses on the same evidence:
 
@@ -8,7 +17,7 @@
 - **WHO** shows who is present and what the unit's own conversations resemble.
 - **WHY** names competing explanations and the observation that would settle them.
 
-Ship WHEN first, on the CPU, with no model. Use the KPU for one thing first: a batched embedding of conversations. It runs behind a two-key rule (no model output is ever the sole basis of a claim) and only after a bench proof of concept with measurable GO/NO-GO criteria.
+Ship WHEN first, on the CPU, with no model. Any scorer comes first as a CPU backend inside the engine, behind a two-key rule (no model output is ever the sole basis of a claim). The KPU is considered only for a model that has passed G3 and cannot meet its rate on the CPU (G4-N). (Revised 27 November 2026: this replaces "use the KPU for one thing first: a batched embedding of conversations", after the owner adopted the review's architecture.)
 
 Host-side experiments for this revision gave three results that drive the design:
 
@@ -27,7 +36,7 @@ The first revision of this brief (`41a6f5d`) chose between three products. This 
 | [neural/ROADMAP.md](neural/ROADMAP.md) | First KPU proof of concept, GO/NO-GO criteria, phased roadmap |
 | [neural/HANDOVER.md](neural/HANDOVER.md) | Where this stands, owner decisions, what warrants independent review |
 | [neural/K1-REVIEW.md](neural/K1-REVIEW.md) | Brief for an independent review of the K1 measurements on Unit A |
-| [neural/INDEPENDENT-REVIEW.md](neural/INDEPENDENT-REVIEW.md) | Independent review of this package (25 November 2026): findings, disputed verdicts, GO/NO-GO decisions and an amended P7 protocol. Its corrections were applied to the other documents on 25 November 2026, except one held with a private finding. Its recommendations on architecture and order are not adopted yet; they await the owner |
+| [neural/INDEPENDENT-REVIEW.md](neural/INDEPENDENT-REVIEW.md) | Independent review of this package (25 November 2026): findings, disputed verdicts, GO/NO-GO decisions and an amended P7 protocol. Its corrections were applied to the other documents on 25 November 2026, except one held with a private finding. Its recommendations on architecture and order were adopted by the owner on 27 November 2026, as direction and priorities, not as authorization |
 
 ## 1. Evidence at the starting point
 
@@ -93,7 +102,7 @@ Tiers follow the roadmap phases ([ROADMAP.md](neural/ROADMAP.md)). Every feature
 | Tier | Feature | Lens | Engine parts | CPU / KPU | Needs |
 | --- | --- | --- | --- | --- | --- |
 | **1** | Visibility gate and `SEEING:` chip | all | gate | CPU | — |
-| **1** | Retroactive MARK, before/after sheet | WHEN | series, before/after | CPU | DS §59 amendment (a MARK control) |
+| **1** | Retroactive MARK, before/after sheet | WHEN | series, before/after | CPU | DS §59 amendment (a MARK control). **N1.0 shipped a reduced form:** MARK and the DHCP, ARP and DNS evidence of the minute before and after, without statistics or verdicts ([PACKETSHARK.md](../PACKETSHARK.md) §4d; DS §59.11) |
 | **1** | Episodes with lifecycle | WHEN | change finder, ledger | CPU | — |
 | **1** | Laps (two-jack compare) | WHEN | series, ledger | CPU | — |
 | **1** | Conversations named by DNS answers | WHO | name binding | CPU | — |
@@ -102,8 +111,8 @@ Tiers follow the roadmap phases ([ROADMAP.md](neural/ROADMAP.md)). Every feature
 | **2** | "Do this now" join watch | WHY | Doctor, presence | CPU | — |
 | **2** | Integrity check | WHY | integrity | CPU | — |
 | **2** | Exposure radar | WHO | presence | CPU | — |
-| **3** | Conversation resemblance (DNA encoder) | WHO, WHEN | conversations, scorer | KPU, CPU reference | gate G4, decision D4 |
-| **3** | Name-shape salience | WHO, WHY | name binding, scorer | KPU | D1, G3, G4 |
+| **3** | Conversation resemblance (DNA encoder) | WHO, WHEN | conversations, scorer | CPU backend first; KPU only under G4-N (revised 27 Nov) | G3; a KPU backend also G4 and G4-N |
+| **3** | Name-shape salience | WHO, WHY | name binding, scorer | NO-GO (review §8) | — |
 | **3** | Verdict replay scrubber (within the session) | WHEN | ledger | CPU | — |
 | **4** | Trend / nowcast, host Wi-Fi station counters | WHEN, WHY | series | CPU | a read-only netd method; driver support unverified |
 | **4** | Replay of a saved capture on the unit | all | virtual-clock replay | CPU | D3 |
@@ -140,7 +149,7 @@ The figures above are fictional. They show a unit that is itself busy, for examp
 
 ## 6. The engine in one paragraph
 
-Observers in `pos-capture` keep a per-second series keyed by packet time, the unit's conversations with their 192-byte DNA sketch, name bindings from DNS answers, and device presence from plumbing. All of it lives in fixed tables of about 1 MiB in total. Analysts then write **observations** to a session-local **ledger**: numbers with numerator, denominator, comparison window, coverage and packet references. On top of these they write **episodes** and **claims**, the claims scored against competing explanations. An optional scorer helper, `pos-infer`, turns batches of numeric tensors into **salience**: resemblance clusters and shape scores. Salience can only point. A claim always needs a rule or a statistic as its witness. Details, the scorer contract, KPU exclusivity, CMA handling, replay and budgets are in [ENGINE.md](neural/ENGINE.md).
+Observers in `pos-capture` keep a per-second series keyed by packet time, the unit's conversations with their 192-byte DNA sketch, name bindings from DNS answers, and device presence from plumbing. All of it lives in fixed tables of about 1 MiB in total. Analysts then write **observations** to a session-local **ledger**: numbers with numerator, denominator, comparison window, coverage and packet references. On top of these they write **episodes** and **claims**, the claims scored against competing explanations. A scorer turns numeric tensors into **salience**: resemblance clusters and shape scores. (Revised 27 November 2026: the adopted architecture runs it first as a CPU backend inside the engine. The separate `pos-infer` child of the original proposal is not adopted; a KPU backend, if one is ever admitted, would be a supervised single-owner service; INDEPENDENT-REVIEW §5.) Salience can only point. A claim always needs a rule or a statistic as its witness. Details, the scorer contract, KPU exclusivity, CMA handling, replay and budgets are in [ENGINE.md](neural/ENGINE.md).
 
 ## 7. First KPU proof of concept, in brief
 
@@ -170,7 +179,7 @@ These are open:
 - **Sharing the KPU with Vision is untested.** Vision does not take the lock yet.
 - **Need.** The CPU reference it was compared with (270 ms) is cache-hostile, so nothing here shows that this model needs the KPU.
 
-G4 has not passed. Details: [ROADMAP §1](neural/ROADMAP.md#result-on-unit-a-25-november-2026). The review: [INDEPENDENT-REVIEW.md](neural/INDEPENDENT-REVIEW.md).
+G4 has not passed. Details: [ROADMAP §1](neural/ROADMAP.md#result-on-unit-a-25-november-2026). The review: [INDEPENDENT-REVIEW.md](neural/INDEPENDENT-REVIEW.md). K2 as specified stays **NO-GO** (adopted 27 November 2026); P6 stays inconclusive and P7 untested until the amended P7 session runs under its own authorization.
 
 ## 8. What stays exactly as it is
 
