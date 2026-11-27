@@ -1,16 +1,18 @@
 # ADR-019 amendment 3: an optional, self-hosted DOORS Relay
 
-Status: **Proposed, approved in principle** by the product owner on
-2026-11-27 with the five decisions of the "Decision record".
+Status: **Accepted** by the product owner on 2026-11-27, as revised (rules
+28 to 42), with the five decisions of the "Decision record".
 
 - The five design concerns the owner named are resolved in rules 31, 34, 37,
   38 and 39 (detail in `docs/design/companion/RELAY_PROPOSAL.md` §4-§9).
-- A focused independent architecture and security review followed on
-  2026-11-27. It found 2 blockers, 6 major and 11 minor points. The
-  reviewer's re-check of the revision found 4 more major problems and 3
-  minor ones. Each is answered in this revision (`RELAY_PROPOSAL.md` §15).
-- **Not accepted for implementation** until the owner accepts this
-  revision. Nothing is built or deployed.
+- A focused independent architecture and security review, and the
+  reviewer's re-check of the revision, are answered in `RELAY_PROPOSAL.md`
+  §15. The first pass found 2 blockers, 6 major and 11 minor points; the
+  re-check found 4 more major problems and 3 minor ones.
+- **Acceptance of the design does not mean an implementation exists or is
+  validated.** Nothing is built or deployed. Each phase of
+  `RELAY_PROPOSAL.md` §16 needs its own go-ahead, and the independent
+  security review of the code (phase 5) comes before any release.
 - The threats are in `docs/design/companion/RELAY_THREAT_MODEL.md`.
 
 Date: 2026-11-27
@@ -66,7 +68,7 @@ The owner's terms (2026-11-27):
 | Clockless | yes | expiry to be disabled; Nebula certificates carry validity | yes with static credentials | yes | yes | yes |
 | Works on an isolating network without internet | no | no | no | no | no | yes |
 
-## Decision (proposed; approved in principle)
+## Decision
 
 **Option A for remote access**, with **option F pursued in phase 0**. A new
 section:
@@ -322,8 +324,6 @@ section:
 
 ## Consequences
 
-Needed now: the owner's acceptance of this revision.
-
 Needed for implementation (`RELAY_PROPOSAL.md` §16), each a later step with
 its own go-ahead:
 - the protocol and the Go server;
@@ -334,7 +334,7 @@ its own go-ahead:
 - the hardware gate;
 - an independent security review of the code before release.
 
-Risks accepted if accepted:
+Risks accepted with this amendment:
 - A phone with `remote` can reach the unit from anywhere. That is the
   feature. `remote` is never a default.
 - A photographed pairing code works through the relay for the rest of its
@@ -354,3 +354,4 @@ Risks accepted if accepted:
 | 2026-11-27 | **Approved in principle**: (1) the hybrid local-first, self-hosted relay architecture; (2) the relay server in Go; (3) `remote` disabled by default and controlled per phone; (4) first-time pairing through the relay supported, with physical approval and fingerprint confirmation; (5) phase 0 alongside phase 1, the SkullerudPark troubleshooting not blocking relay work. To be resolved before implementation: key rotation and recovery without a LAN, first relay pairing and the transition to `remote`, LAN/relay races and session replacement, isolation from a hostile relay including CPU and event-loop starvation, and restrictive networks; then a focused independent review. Keep the implementation minimal | Product owner |
 | 2026-11-27 | Independent architecture and security review: 2 blockers (helper privilege; descriptor direction), 6 major, 11 minor. All answered in this revision (`RELAY_PROPOSAL.md` §15) | Reviewer; author |
 | 2026-11-27 | The reviewer's re-check of the revision: both blockers and majors 5, 6, 8 resolved; 3, 4, 7 partly. 4 new problems (an unverified backup pin, replacement not carried to the helper and relay, relay sessions outliving a closed gateway, rollback after reconfiguration) and 3 minor. All answered here (§15.2) | Reviewer; author |
+| 2026-11-27 | **ADR-019 amendment 3 accepted as revised** (rules 28 to 42), with the answers to the review and its re-check. Each phase of `RELAY_PROPOSAL.md` §16 still needs its own go-ahead | Product owner |

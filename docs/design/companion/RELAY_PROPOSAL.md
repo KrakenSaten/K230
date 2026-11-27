@@ -1,8 +1,8 @@
 # Companion: a self-hosted DOORS Relay (proposal)
 
-Status: **proposal** for ADR-019 amendment 3, which is Proposed and was
-approved in principle on 2026-11-27. This revision answers the independent
-review (§15). Nothing is implemented.
+Status: **proposal** for ADR-019 amendment 3, **accepted** by the owner on
+2026-11-27 as revised. This revision answers the independent review (§15).
+Nothing is implemented; each phase (§16) needs its own go-ahead.
 
 - ASSUMED marks estimates still to be measured.
 - Claims about other projects are from their public documentation, to be

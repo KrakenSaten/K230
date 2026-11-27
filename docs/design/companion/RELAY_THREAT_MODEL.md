@@ -1,7 +1,7 @@
 # Companion: threat model of the DOORS Relay
 
-Status: **draft** for ADR-019 amendment 3, which is Proposed and was approved
-in principle on 2026-11-27. Revised after the independent review
+Status: **draft** for ADR-019 amendment 3, **accepted** by the owner on
+2026-11-27 as revised. Revised after the independent review
 (`RELAY_PROPOSAL.md` §15). A design-time analysis: nothing is implemented or
 tested.
 
