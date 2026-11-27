@@ -323,25 +323,40 @@ measurement that LAN service stays available.
 | The `remote` grant | `relay.v1` is written | `relay.v1` |
 | Confirmed relay admission | never durable | memory: what the current relay last acknowledged on the current control generation |
 
-**The two-file rule:**
+**The two-file rule** (amended 2026-11-27 for re-review finding F5: recovery
+fails closed, and a digest alone never proves a grant):
+- **The identity of `paired.v1`** is its SHA-256 together with the file that
+  holds it: device, inode, size, change time and modification time
+  (nanoseconds), as `stat` gives them. Any rewrite, even of the same bytes,
+  changes the change time, and gatewayd's temp-and-rename also changes the
+  inode. A missing file is an identity of its own.
 - Every change to `paired.v1` (a pairing, a pairing again of a known key, or
-  a revocation) is preceded by a `relay.v1` write. That write records the
-  grants before and after the change, and the SHA-256 of `paired.v1` before
-  and after it. Then `paired.v1` is written.
-- A change of `remote` alone writes only `relay.v1`.
+  a revocation) takes three writes:
+  1. `relay.v1`, **unsealed**: the grants before and after the change, the
+     SHA-256 of `paired.v1` before and after it, and `paired.v1`'s identity
+     before it;
+  2. `paired.v1`;
+  3. `relay.v1` again, **sealed**: the same record plus `paired.v1`'s
+     identity as just written.
+- A change of `remote` alone is one `relay.v1` write, sealed with
+  `paired.v1`'s identity as it is.
 - Each write is temp, flush, rename, flush of the directory.
 
-**At start, gatewayd reads the digest of `paired.v1`:**
+**At start, gatewayd compares `paired.v1` with `relay.v1`:**
 
-| `paired.v1` digest | Grants used |
+| What gatewayd finds | Grants used |
 | --- | --- |
-| equal to the recorded *after* | the grants after the change |
-| equal to the recorded *before* (the change was interrupted, so it did not happen) | the grants before the change. An interrupted pairing grants nothing, and an interrupted revocation leaves the phone as it was, paired and unacknowledged |
-| neither (a rollback gatewayd or an edit changed the list) | **every grant dropped**, logged, and said in Settings: "Remote access was turned off for every phone because the paired list changed" |
+| `relay.v1` sealed, and `paired.v1`'s identity equals the seal | the grants after the change |
+| `relay.v1` unsealed, and `paired.v1`'s identity equals the one recorded before (the change was interrupted before `paired.v1` was written) | only grants present **both** before and after. An interrupted pairing grants nothing; an interrupted revocation leaves the phone paired **without** its grant, said in Settings: "Remote access was turned off for a phone whose change was interrupted" |
+| anything else: a rollback gatewayd or an edit rewrote the list (even byte for byte), the file is unreadable, its identity cannot be read, or a crash came between `paired.v1` and the seal | **every grant dropped**, logged, and said in Settings: "Remote access was turned off for every phone because the paired list changed" |
 
 In every case **a grant counts only for a key present in `paired.v1`**.
 A re-pairing without "Through the relay" switched on records no grant, so
-revocation followed by re-pairing never revives an old one.
+revocation followed by re-pairing never revives an old one. Every doubt
+costs the owner a tap per phone to give `remote` again, never a grant that
+should be gone. The residual: a rewrite that keeps the inode, the size, the
+bytes and both times to the nanosecond, which needs root on the unit
+(threat model R-T45).
 
 **The order of each operation:**
 
@@ -534,7 +549,12 @@ by `GW_READ_BATCH` (`main.c:2898`), so the loop is not changed.
 **Frames:**
 - control connection: 10 per second; more, or a malformed one, closes it and
   backs off;
-- invitations: at most 1 per second acted on, the rest declined;
+- invitations: at most 1 per second acted on. The rest are dropped
+  **silently**, with no `decline`, so no burst of invitations can make the
+  helper exceed the relay's control frame limit (10 a second). The relay
+  itself invites a unit at most once a second (`docs/api/relay.md` §10; the
+  owner's decision of 2026-11-27 on re-review finding F2), so a correct
+  relay never sends more;
 - data connections: 1 at a time, counting one still waiting for its
   `ready`. An invitation for the client that holds it replaces it: the old
   data connection and its socketpair end are closed first (§7.2). An
@@ -829,6 +849,8 @@ The tests and measurements that phase 1 now requires are listed in §16.
 
 **The re-review:** this design is GO, with one wording fix. §8.3's "declined" must not let the helper's declines exceed the relay's frame limit (finding F2, an owner decision). Phase 1 is NO-GO until F1 is fixed. The open findings and next steps are there.
 
+**After the re-review (2026-11-27):** the owner decided F2 (one invitation per unit per second at the relay; the helper drops the rest silently, §8.3). F5 is resolved by a fail-closed two-file rule (§6.1). F1, F4 and F6 are fixed in #194. F3 stays open as a **mandatory gate before any public deployment** (§16), and F7's limits are recorded in `docs/api/relay.md` §15. `RELAY_REVIEW_RESOLUTION.md` §18 has the record.
+
 ## 16. Phases (each with its own go-ahead)
 
 | Phase | What | Done when |
@@ -838,7 +860,7 @@ The tests and measurements that phase 1 now requires are listed in §16.
 | **2. Unit** | The helper (id, seccomp, limits); `S70gatewayd` and sysd; gatewayd's `relay.v1` (§6.1), socket, generation-bound IPC (§8.1), socketpairs, budgets, `remote`, two candidate slots, endorsements, `key_proof`, listener independence; Settings; host integration with the real Go relay; cross-build | Off by default. The helper cannot read the key, and its reachable sockets and destinations are listed and reviewed. The real C helper and gatewayd pass against the Go relay, with independent wire vectors. Promotion and revocation are restart-safe (fault injection). LAN and relay pairing state are separate. A revoked phone loses its relay session within a second. The lying relay and a hostile helper gain nothing. **LAN responsiveness is measured** during hostile relay traffic. Starts only with the owner's go-ahead, after phase 1's sign-off |
 | **3. Android** | `RelayTransport`; pinned and provisional contexts; endorsements; proxy and captive portal; paths; pairing with `r`; UI; lint | JVM tests against the real relay and gatewayd |
 | **4. Hardware gate** | Unit B on an isolating network, the phone on mobile data: first pairing through the relay with the keys compared; `remote` off, then the tap after it is given; revocation; reboot; relay restart; promotion of the backup with the phone away; Vision and PacketShark; handshake cost and frame time; a relay flood with a LAN phone working | PASS per part, owner present |
-| **5. Release** | Independent security review of the code; the relay's install guide | Owner's acceptance |
+| **5. Release** | Independent security review of the code; the relay's install guide. **Before any public deployment:** re-review finding F3 resolved (a pre-authentication cap that leaves room for authenticated connections, IPv6 grouping, a ClientHello deadline; `docs/api/relay.md` §15.6) | Owner's acceptance; F3 closed |
 
 ## 17. Left out on purpose (minimal)
 
