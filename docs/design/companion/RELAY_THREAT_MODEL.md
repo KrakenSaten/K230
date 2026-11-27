@@ -1,9 +1,11 @@
 # Companion: threat model of the DOORS Relay
 
 Status: **draft** for ADR-019 amendment 3, **accepted** by the owner on
-2026-11-27 as revised. Revised after the independent review
-(`RELAY_PROPOSAL.md` §15). A design-time analysis: nothing is implemented or
-tested.
+2026-11-27 as revised. Revised after the first independent review and its
+re-check, and after the second (Codex) review (`RELAY_PROPOSAL.md` §15).
+R-T42 to R-T50 come from the second review. A design-time analysis for the
+unit and the app: only the relay (phase 1, PR #194) is implemented, and it
+is host-tested only.
 
 - It extends `THREAT_MODEL.md`. Its threats T1 to T23 still apply to every
   gateway session, whichever path carried it.
@@ -51,13 +53,13 @@ tested.
 | R-T15 | The relay learns who talks to whom | Self-hosted; said in Settings (rule 42); addresses truncated in logs (rule 41) | Accepted. Separate relay identities later (§17) |
 | R-T16 | N3 learns that a Doors relay is used | HTTPS-shaped; the path is inside TLS; a proxy sees `CONNECT name:443` | The pattern of a long-lived connection; the relay's name |
 | R-T17 | A wrong clock | Pins, sequences, nonces, monotonic timers (rule 40) | None in the design |
-| R-T18 | A revocation races a relay session | gatewayd closes the session itself, then sends `admit` | None: gatewayd decides |
+| R-T18 | A revocation races a relay session | gatewayd writes the change, closes the session itself, then sends the list. The relay acknowledges only after both legs of the splice have stopped (R-T43) | None: gatewayd decides |
 | R-T19 | R2 abuses its line to gatewayd | An abstract socket admitted by `SO_PEERCRED`; fixed frames of at most 256 bytes and 20/s, read without a control buffer. Logins are signed only for pinned keys, 1/s. Endorsements come only from gatewayd's configuration. The backup pin is accepted only with a signature by the confirmed active key, at set-up. Promotion needs a `key_proof` under the pinned backup. gatewayd never receives a descriptor | R2 can log in as the unit to a pinned relay (it already holds that connection), and deny remote access |
 | R-T20 | A parser bug in the relay path gives root, or the device key | The helper runs under its own id, without capabilities, with `no_new_privs`, seccomp and limits; it is started outside gatewayd's capability drop (rule 38). gatewayd parses no relay frame | A kernel exploit from the helper's sandbox (out of scope, as for every process) |
 | R-T21 | A stalled second attempt ends a working session | The phone never runs two gateway handshakes for one unit at once (rule 37) | A hostile app build (P1) can do so to its own sessions |
 | R-T22 | The phone flaps between paths | One handshake at a time; the LAN is retried only on a network change, with back-off | A brief relay session before the LAN wins |
 | R-T23 | `remote` granted by mistake | The approval-sheet switch is shown off and needs its own tap; the sheet says "through your relay" | A person's error; it can be taken away on the phone's page |
-| R-T24 | The relay withholds `admitted` after a relay pairing | gatewayd waits at most 3 s; the phone retries twice | Denial for that phone |
+| R-T24 | The relay withholds `admitted` after a relay pairing | The pairing is committed first. gatewayd waits at most 3 s, then answers `pending`. The phone retries twice, then backs off. The list is sent again after every registration (§6.1) | Remote access pending for that phone: a denial, never a lost pairing |
 | R-T25 | P3 from far away | `remote` never a default; revocation at the unit is immediate on the relay too | What it did before revocation |
 | R-T26 | N3 intercepts TLS (captive portal, its own CA) | Pins or the endorsement check fail; the app says why; no bypass | No remote on that network |
 | R-T27 | The relay is abused as an open proxy | No host, port or service in the protocol; only enrolled units | None in the design |
@@ -75,6 +77,15 @@ tested.
 | R-T39 | After a lost `relay.v1` and a new set-up, old endorsements of a stolen key pass again because the sequence restarts | A random configuration id in every endorsement; a new id reaches phones only over an authenticated session or a pairing (§4.2) | None in the design |
 | R-T40 | R1 crashes the helper repeatedly until `pos-supervise` stops it for good | The helper never exits on relay misbehaviour; it closes and backs off (§8.1) | A bug that crashes it is still a crash: remote access stops until the next start, and the LAN is unaffected |
 | R-T41 | R1 or R2 refuses a returning phone through the limit of 1 | The relay, the helper and gatewayd all replace the same phone's session (§7.2) | None in the design |
+| R-T42 | A data connection joins with a cookie issued on a superseded control connection, after its deadline, or for a pairing window that has closed or changed (second review, finding 1) | Each invitation holds its control generation, its slot generation and a monotonic deadline. `join` checks and consumes them in one critical section. A replacement, a control loss or a slot change ends pending invitations within its own critical section. `decline` counts only on its own generation (`docs/api/relay.md` §7) | None in the design; the relay is trusted for routing (denial only) |
+| R-T43 | The relay acknowledges a revocation while the splice still forwards, or acknowledges for a superseded control (finding 2) | Both legs closed, and forwarding stopped, before `admitted`. `forwarding` is entered only under the lock. Acknowledgements only for committed updates on the current generation, matched to `n` | A lying relay can acknowledge falsely. gatewayd's own close and `remote` check decide (rule 32) |
+| R-T44 | The relay offers two places while the unit has one, so a candidate is admitted and then refused, or a remote session starves relay pairing unpredictably (finding 3) | One place at the relay, the helper and gatewayd. Busy is uniform and said. Separate LAN and relay candidate state | Relay pairing is busy during a remote session (accepted, ADR "Consequences") |
+| R-T45 | A crash, a rollback or a pairing again revives a stale `remote` grant (finding 4) | The two-file rule with digests and grants before and after. A grant counts only for a key in `paired.v1`. An unknown change to `paired.v1` drops every grant (§6.1) | After a rollback, every phone loses `remote` until it is given again |
+| R-T46 | A phone is told it has remote access that the relay never admitted, or retries create a second pairing (finding 4) | An explicit `pending` outcome. A full snapshot after every `registered`. Retries are ordinary authenticated sessions, with no second entry or approval | Pending until the relay acknowledges |
+| R-T47 | I1 exhausts the relay's memory or CPU through source churn, or stalls it through log output (finding 5) | A hard cap on tracked sources with bounded sweep work per accept. A bounded, non-blocking log queue that drops and counts. Rate-limited refusal lines. Churn, shared-NAT and slow-reader runs measured (`docs/api/relay.md` §15) | While the source table is full, new sources are refused: an availability cost under a distributed flood |
+| R-T48 | R2 replays or misroutes helper frames (a proof, backup or acknowledgement of an old connection), or a local process takes the abstract socket name first | Every frame carries the generation and its operation, and gatewayd acts only on current ones with the expected pin. Both ends check `SO_PEERCRED`. gatewayd bounds its own work per loop turn (§8.1) | R2 can deny remote access (R-T19) |
+| R-T49 | A relay session of a phone without `remote` displaces its working LAN session | Eligibility is checked on the actual ingress path after the inner handshake, before any replacement (§7.2; rule 37) | None in the design |
+| R-T50 | After both relay keys are lost, or a new set-up, phones are stranded, or adopt the new configuration on the provisional path | A new configuration id reaches a phone only through an authenticated `gateway.hello` or a pairing. The runbook says a published backup installs nothing on a unit (§4.4) | Phones away from the LAN have no remote access until they return to it, or are paired again |
 
 ## 4. What does not change
 
@@ -99,7 +110,12 @@ tested.
    - `B` is promoted only after a valid `key_proof`, and only once;
    - `A` is refused afterwards;
    - a hostile helper's false `presented {B}`, without a proof, changes
-     nothing and writes nothing.
+     nothing and writes nothing;
+   - promotion is one write: a fault-injection test restarts at every point
+     and finds the old state or the new one, never a mix;
+   - after promotion every connection presenting the old `A` is closed;
+   - set-up and adding a backup run over a fresh connection pinned to the
+     full confirmed hash, within the relay's deadline (R-T50 runbook).
 3. **Endorsements and the phone:**
    - the pinned path is used when the key is known;
    - on the provisional path, each wrong field (signature, name, port, key,
@@ -116,6 +132,12 @@ tested.
 5. **Admission:**
    - unknown, not admitted and offline all get `unavailable`;
    - a removal ends the splice within a second;
+   - `admitted` is sent only after both legs of a removed phone's splice are
+     closed, also when forwarding is blocked or the splice is in its `ready`
+     transition;
+   - a superseded control's update is neither applied nor acknowledged, and
+     a non-increasing `n` closes the connection;
+   - `registered` comes after a replacement's effects;
    - a paired phone without `remote` that a lying relay passes through is
      closed by the gateway.
 6. **Pairing:**
@@ -124,6 +146,15 @@ tested.
      three wrong tokens on the relay path (the LAN path still open);
    - `remote` on with `admitted` first, off with the message, and the later
      tap after a grant;
+   - a withheld `admitted`: the pairing stands, the answer is `pending`, a
+     retry creates no second entry, and the snapshot after the next
+     `registered` admits the phone;
+   - the two-file rule's three start cases, and a revocation followed by a
+     pairing again without `remote` (no grant revived);
+   - a slot clear or change ends pending candidate invitations, and a
+     running candidate session is left to gatewayd;
+   - one place: a remote phone's session makes a relay candidate busy, and
+     the reverse;
    - the token absent from the relay's memory and logs (a test build);
    - the code under 512 characters with a 64-character name.
 7. **Races:**
@@ -131,15 +162,25 @@ tested.
    - replacement at the end of the handshake, before the limits;
    - a phone returning through the relay replaces its dead relay session at
      the relay, in the helper and in gatewayd;
+   - a relay session of a phone without `remote` never displaces its LAN
+     session;
+   - `join` against expiry, control replacement and slot changes, decided
+     deterministically at the relay;
    - a send in flight is transmitted once.
 8. **Isolation:**
    - the helper runs under its id, with no capabilities, `no_new_privs`,
      seccomp and its limits, and cannot open `identity.v1` or `/etc/shadow`;
-   - `SO_PEERCRED` refuses any other peer;
+   - `SO_PEERCRED` refuses any other peer, in both directions (a squatter
+     on the abstract name gets nothing from the helper);
+   - helper frames of an old generation, or for no outstanding operation,
+     change nothing;
+   - the list of local sockets and network destinations the helper can
+     reach is recorded and reviewed;
    - gatewayd never accepts a descriptor;
    - a lying relay and a hostile helper (floods, oversized frames, signing
      above the rate) end in refusals, declines or a restart, while pocketipc
-     reads stay within budget and a LAN phone stays served.
+     reads stay within budget and a LAN phone stays served, with its latency
+     measured.
 9. **The listener:**
    - relay sessions survive an address change, and a relay-only window opens
      without a private address (with no `h` in the code);
@@ -156,5 +197,12 @@ tested.
 11. **Rollback:** an older gatewayd with a `relay.v1` present starts normally,
     with remote off.
 12. **Fuzzers** over the relay's HTTP start and frames (Go), and the helper's
-    and gatewayd's helper-line readers (C, with sanitizers).
-13. **On hardware**, with a go-ahead: `RELAY_PROPOSAL.md` §16, phase 4.
+    and gatewayd's helper-line readers (C, with sanitizers). The relay's
+    rejection vectors (duplicates, encodings, `null`s, integer overflow,
+    malformed DER) are shared test data the C and Kotlin readers must also
+    refuse.
+13. **The relay's own resources:** the source table never exceeds its cap;
+    a full table refuses at accept; sweep work per accept is bounded; a
+    blocked log writer never stalls a connection; connection churn, a shared
+    NAT and slow readers are measured (`docs/api/relay.md` §15).
+14. **On hardware**, with a go-ahead: `RELAY_PROPOSAL.md` §16, phase 4.

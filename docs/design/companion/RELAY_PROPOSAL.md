@@ -1,8 +1,10 @@
 # Companion: a self-hosted DOORS Relay (proposal)
 
 Status: **proposal** for ADR-019 amendment 3, **accepted** by the owner on
-2026-11-27 as revised. This revision answers the independent review (§15).
-Nothing is implemented; each phase (§16) needs its own go-ahead.
+2026-11-27 as revised. It answers the first independent review (§15.1,
+§15.2) and the second, by Codex (§15.3), whose findings the owner accepted.
+The wire protocol itself is `docs/api/relay.md` (phase 1, PR #194). Phase 2
+is not implemented, and each phase (§16) needs its own go-ahead.
 
 - ASSUMED marks estimates still to be measured.
 - Claims about other projects are from their public documentation, to be
@@ -67,21 +69,34 @@ Nothing is implemented; each phase (§16) needs its own go-ahead.
 - `relay.v1` in gatewayd's state directory (0600) holds:
   - the relay's name and port;
   - the active pin `A` and the backup pin `B`;
-  - the endorsement sequence number;
-  - the fingerprints of phones holding `remote`.
+  - the configuration id and the endorsement sequence number;
+  - the `remote` grants (fingerprints of phones holding `remote`);
+  - the SHA-256 of `paired.v1` before and after its last change (§6.1).
 
-  It is written by temp-flush-rename.
+  It is written temp, flush, rename, flush of the directory.
 - **Set up at the unit** (rule 28):
   1. The person types the name and port.
-  2. The helper connects and reports the presented key.
+  2. The helper opens a **probe** connection and reports the presented key's
+     full SHA-256.
   3. Settings shows its fingerprint as sixteen hex digits in groups of four,
-     and the person compares and confirms.
-  4. gatewayd sends a fresh nonce. The relay answers
+     and the person compares and confirms. The probe connection is closed by
+     then (the relay allows 10 s from accept to `register`).
+  4. The helper opens a **fresh connection**, accepted only if the presented
+     key hashes to the **full** confirmed SHA-256. gatewayd sends a fresh
+     nonce in `get_backup`. The relay answers
      `backup {spki_a, spki_hash_b, sig}`, where `sig` is by the confirmed
      key `A` over `"DOORS relay backup v1" 0x00 || spki_hash_b || nonce`.
-  5. gatewayd checks that `spki_a` hashes to the confirmed `A`, and that the
-     signature verifies. Only then is `B` stored, and only during set-up.
+  5. gatewayd checks that `spki_a` hashes to the confirmed `A`, that the
+     signature verifies, and that the answer matches the outstanding
+     operation and nonce (§8.1). Only then is `B` stored, and only during
+     set-up.
   6. A random 64-bit **configuration id** is drawn, and `seq` is set to 1.
+  7. Steps 4 to 6 are written to `relay.v1` before the connection sends
+     `register`, inside the relay's 10 s. If the deadline passes, the relay
+     closes the connection and the helper dials again; the durable state is
+     used as it stands.
+- **Set-up trusts the human-confirmed `A`.** A relay that already holds `A`
+  at set-up chooses `B`. That is no worse than holding `A` itself.
 - **Why the backup is signed.** The helper connects before anyone has
   confirmed the relay. If it were compromised, it could otherwise show the
   genuine `A` and slip in an attacker's key as `B`.
@@ -92,10 +107,15 @@ Nothing is implemented; each phase (§16) needs its own go-ahead.
   1. When the helper reports `B`, gatewayd sends a fresh 32-byte nonce.
   2. The relay must return `key_proof {spki, sig}`: the signature, by the key
      it presented, over `"DOORS relay key proof v1" 0x00 || nonce`.
-  3. gatewayd checks that the SPKI hashes to `B` and that the signature
-     verifies.
-  4. Only then does it write `A := B; B := none`, in one durable write, once
-     per configuration.
+  3. gatewayd checks that the SPKI hashes to `B`, that the signature
+     verifies, and that the answer matches the outstanding operation.
+  4. Only then does it write `A := B; B := none; seq := seq + 1`, in **one**
+     durable write, once per configuration. A fault-injection test shows that
+     a restart at any point leaves the old state or the new one, never a mix.
+  5. The helper then closes every connection presenting the old `A`, and
+     gatewayd signs nothing for it again. The connection registers with an
+     endorsement of the new `A`, within the relay's 10 s; if the write was
+     too slow, it dials again and does so.
 - A compromised helper cannot fake that proof, and cannot burn the backup.
   Repeated reports cost nothing after the first, and nothing at all without a
   proof. With `B` promoted, the old active key is no longer accepted: a thief
@@ -115,20 +135,25 @@ Nothing is implemented; each phase (§16) needs its own go-ahead.
   (rule 13's one exception).
   1. It sends the HTTP start, then `which {lookup}`, where
      `lookup = SHA-256("DOORS relay lookup v1" 0x00 || presented_key_hash || device_id)`.
-  2. It receives `endorsement {E, sig}` and checks it:
-     - the signature verifies under the unit key it pins (or the code's `fp`);
+  2. It receives `endorsement {spki, E, sig}` and checks it:
+     - **first**, the unit's SPKI, in its one canonical encoding, hashes to
+       the unit key it pins (or the code's `fp`); only then is the signature
+       verified under it (Q1);
      - the name and port are those dialled;
      - the key hash equals the presented leaf;
      - the configuration id equals the stored one (any, at a first pairing);
-     - the sequence is at least the stored one.
-  3. Then it pins the key, stores the id and the sequence, and continues.
+     - the sequence is at least 1 and at least the stored one. A key other
+       than the pinned one, in the same configuration, needs a strictly
+       higher sequence (Q14).
+  3. Then it pins the key, stores the id and the sequence, and continues. At
+     a first pairing these stay provisional until the pairing succeeds.
 
   Nothing else is sent before that check. The lookup is bound to the
   presented key, so a fake relay cannot turn it into a `device_id`; the
   genuine relay computes it for its enrolled units.
 - **The endorsement:**
   ```
-  E = "DOORS relay endorsement v1" 0x00 || u64 config_id || u64 seq || u8 len || name (lowercase ASCII, at most 64) || u16 port || 32-byte SHA-256(relay SPKI)
+  E = "DOORS relay endorsement v1" 0x00 || u64 config_id || u64 seq || u8 len || name (a canonical dialable DNS name, at most 64) || u16 port || 32-byte SHA-256(relay SPKI)
   sig = ECDSA-P256-SHA256(device key, E)
   ```
 - **Configuration id and sequence:**
@@ -167,10 +192,21 @@ Nothing is implemented; each phase (§16) needs its own go-ahead.
 | --- | --- | --- | --- |
 | Planned rotation | The operator brings `B` online. The helper reports it; gatewayd checks `key_proof`, promotes `B`, and endorses it with `seq+1`. Phones whose pin fails verify the endorsement through the relay and re-pin | no | only to add a new backup |
 | `A` stolen | As above. The unit no longer accepts `A` at all. A phone that has seen `seq+1` refuses `A`'s old endorsement. One that has not can be shown `A`: metadata and denial, never content | no | to add a backup |
-| `A` and `B` lost | The unit cannot connect | - | yes: set up again. Phones follow by endorsement |
+| `A` and `B` lost | The unit cannot connect. A new set-up draws a **new configuration id**. Phones **cannot** follow by endorsement: on the provisional path they accept only the id they stored. Each phone recovers through an authenticated `gateway.hello` on a path it can still use (the LAN), or by pairing again | for each phone | yes: set up again |
 | Address change | Change the DNS record | no | no |
 | Relay renamed | Phones learn the new name in `gateway.hello` (LAN, or a relay session before the rename), or from a new pairing code | for phones that missed it | to configure the unit |
-| `relay.v1` lost | Fault; remote off. A new set-up draws a new configuration id, so old endorsements stay refused (§4.2) | - | yes |
+| `relay.v1` lost | Fault; remote off. A new set-up draws a new configuration id, so old endorsements stay refused (§4.2). Phones recover as in "`A` and `B` lost" | for each phone | yes |
+
+**Rotation runbook (operator):**
+1. Keep the backup key offline. Publishing a new backup key at the relay
+   installs it on **no** unit. A unit takes a new `B` only at set-up, by a
+   person at that unit.
+2. To rotate, bring `B` online as the relay's key. Each unit promotes it
+   after its `key_proof` (§4.1), and phones follow through endorsements.
+3. Then make a new backup key and configure its hash at the relay. A person
+   at each unit adds it, as in set-up steps 4, 5 and 7 (verified by the
+   active key's signature). The configuration id stays the same. Until then,
+   that unit has no backup.
 
 ## 5. The relay protocol (rules 35, 39)
 
@@ -198,17 +234,28 @@ Nothing is implemented; each phase (§16) needs its own go-ahead.
 | control | unit | `unit {spki, sig}` | Unit login (§4.3) |
 | control | relay | `backup {spki_a, spki_hash_b, sig}` | The backup pin, signed by the confirmed active key over the unit's nonce; at set-up only (§4.1) |
 | control | relay | `key_proof {spki, sig}` | Answer to `prove {nonce}` from the unit (§4.1) |
-| control | unit | `register {admit[], endorsement}` | At most 8 admitted fingerprints; replaces an earlier control connection |
-| control | unit | `admit {admit[], n}` and relay `admitted {n}` | Replace the list, and confirm it |
+| control | unit | `register {admit[], endorsement}` and relay `registered` | At most 8 admitted fingerprints; replaces an earlier control connection. `registered` says the replacement has taken effect and routing is available (Q22) |
+| control | unit | `admit {admit[], n}` and relay `admitted {n}` | Replace the list (the whole list, `n` increasing), and confirm it once it is in force and removed phones' splices have stopped |
 | control | unit | `pair_slot {slot or null}` | `slot = HKDF-SHA256(token, "DOORS relay pair slot v1")[0..16]`, sent only while a window allows the relay |
 | control | relay | `invite {cookie, client, via}` | A phone wants a session. `client` and `via` are hints |
 | control | unit | `decline {cookie}` | - |
 | control | both | `ping/pong {n}` | Every 25 s; 75 s of silence closes |
 | client | phone | `which {lookup}` and relay `endorsement {E, sig}` or `unavailable` | Only on the provisional path (§4.2) |
 | client | phone | `client {spki, sig}`, then `connect {slot?}`; relay `ready` or `unavailable` | - |
-| data | unit | `join {cookie}` | No login: the cookie is one-time, 128 bits, bound to the control connection, and valid for 5 s |
+| data | unit | `join {cookie}` | No login: the cookie is one-time, 128 bits, bound to the control connection's generation (and, for a candidate, the slot's), and valid for 5 s by the relay's monotonic clock |
 
-Nothing names a port, host or service.
+Nothing names a port, host or service. This table is a summary; the
+protocol, including `get_backup`, `ready` on the data connection and the
+exact checks, is `docs/api/relay.md`.
+
+**Capacity (owner's decision on Q9).** Per unit, the relay holds **one
+place**: one pending invitation or one splice, of a listed phone or of a
+candidate. A phone that holds the place replaces itself. Any other phone is
+refused while it is taken. So in v1 relay pairing is busy while a remote
+phone's relay session runs, and the other way round. The helper (§8.3) and
+gatewayd (§8.2) keep the same single place. Concurrent relay pairing beside
+a remote session would need a revised helper and gatewayd budget, and a
+measurement that LAN service stays available.
 
 ## 6. First pairing through the relay, and `remote` (rules 33, 34)
 
@@ -229,25 +276,101 @@ Nothing names a port, host or service.
    wrong tokens for the LAN, and another pair for the relay**
    (`gw_pair.[ch]`). A relay candidate's three wrong tokens close the relay
    path of the window, not the window.
+   - The relay's single place (§5.2) means a candidate is refused while a
+     remote phone's relay session runs. The phone shows that the relay path
+     is unavailable, and the LAN path is unaffected.
+   - When the window closes or changes (`pair_slot` cleared or replaced), the
+     relay ends every pending candidate invitation of it (Q27). A candidate
+     whose session already runs is gatewayd's: gatewayd owns its final
+     answer, its timeout, the window's expiry, revocation and teardown.
 3. Inside the spliced gateway TLS, everything is ADR-019's.
 4. **The approval sheet** shows "Connecting **through your relay**", the
    candidate's name and key with "Same key on the phone" (amendment 2), the
    usual scope switches, and "Through the relay", **shown off**.
 5. **Approved with "Through the relay" on:**
-   1. `relay.v1` gains the phone.
-   2. `admit {.., n}` is sent, and gatewayd waits for `admitted {n}` (at most
-      3 s) before answering `{paired: true, scopes: [.., "remote"]}`.
-   3. The candidate's relay slot is released when its session ends.
-   4. The phone reconnects through the relay as a paired phone. If no
-      `admitted` came, it retries twice within 10 s.
+   1. **The pairing is committed** by the two-file rule (§6.1): `relay.v1`
+      with the new grant and the digests, then `paired.v1`.
+   2. gatewayd sends the full admission snapshot as `admit {.., n}` on the
+      current control generation, and waits at most 3 s for `admitted {n}`
+      on that same generation.
+   3. It answers `{paired: true, scopes: [.., "remote"], relay: "admitted"}`
+      or `relay: "pending"`. Pending means no current control connection, no
+      acknowledgement in time, or a control replaced while waiting. It is an
+      outcome, not an error: **the pairing stands**.
+   4. The candidate's relay slot is released when its session ends.
+   5. The phone reconnects through the relay as a paired phone. On
+      `pending`, the app says "Paired. Remote access is waiting for the
+      relay.", retries twice within 10 s, then follows PAIRING.md's
+      back-off.
 6. **Approved without it:** the answer has no `remote`. The app says:
    "Paired. Remote access is off for this phone: it reaches the unit on the
    same network. If it is switched on at the unit, tap 'Try through the
    relay'." The relay is tried again only by that tap, and the tap is admitted
    once `remote` has been given at the unit. Nothing else changes.
 7. **Refused, expired, or a wrong token:** as ADR-019.
-8. Later, `remote` is given or taken on the phone's page. Every change sends
-   `admit`, and ends a relay session the phone no longer may hold.
+8. Later, `remote` is given or taken on the phone's page. Every change is
+   written first, then sends the full list in `admit`. Taking it away also
+   makes gatewayd close that phone's relay session itself, without waiting
+   for the relay.
+
+### 6.1 Commit and recovery across `paired.v1` and `relay.v1`
+
+**Three states, kept apart:**
+
+| State | Durable when | Held in |
+| --- | --- | --- |
+| Pairing | `paired.v1` is written | `paired.v1` (unchanged format, so a rollback reads it) |
+| The `remote` grant | `relay.v1` is written | `relay.v1` |
+| Confirmed relay admission | never durable | memory: what the current relay last acknowledged on the current control generation |
+
+**The two-file rule:**
+- Every change to `paired.v1` (a pairing, a pairing again of a known key, or
+  a revocation) is preceded by a `relay.v1` write. That write records the
+  grants before and after the change, and the SHA-256 of `paired.v1` before
+  and after it. Then `paired.v1` is written.
+- A change of `remote` alone writes only `relay.v1`.
+- Each write is temp, flush, rename, flush of the directory.
+
+**At start, gatewayd reads the digest of `paired.v1`:**
+
+| `paired.v1` digest | Grants used |
+| --- | --- |
+| equal to the recorded *after* | the grants after the change |
+| equal to the recorded *before* (the change was interrupted, so it did not happen) | the grants before the change. An interrupted pairing grants nothing, and an interrupted revocation leaves the phone as it was, paired and unacknowledged |
+| neither (a rollback gatewayd or an edit changed the list) | **every grant dropped**, logged, and said in Settings: "Remote access was turned off for every phone because the paired list changed" |
+
+In every case **a grant counts only for a key present in `paired.v1`**.
+A re-pairing without "Through the relay" switched on records no grant, so
+revocation followed by re-pairing never revives an old one.
+
+**The order of each operation:**
+
+| Operation | Order |
+| --- | --- |
+| Pair, `remote` on | `relay.v1` (grants before and after, with the grant; digests); `paired.v1`; snapshot `admit`; wait up to 3 s; answer `admitted` or `pending` |
+| Pair, `remote` off (also a known key pairing again) | `relay.v1` (grants before and after, without one for the key; digests); `paired.v1`; answer without `remote` |
+| Give `remote` | `relay.v1`; snapshot `admit` |
+| Take `remote` | `relay.v1`; close the phone's relay session; snapshot `admit` |
+| Revoke | `relay.v1` (grants before and after, the phone's dropped; digests); `paired.v1`; close every session of the phone, LAN and relay; acknowledge the person; snapshot `admit` |
+
+**The snapshot** is the set of paired keys with a grant, at most 8, sent as
+a whole. After every `registered`, gatewayd sends it before anything else,
+including the first `pair_slot`. The relay's list is replaced, never merged,
+so the relay always ends up holding exactly what the files say.
+
+**Acknowledgements:**
+- An `admitted {n}` counts only for the outstanding `n` on the current
+  control generation. Any other is ignored.
+- It means only that this relay says the list is in force. A lying relay can
+  say so falsely: gatewayd's own `remote` check after each relay handshake,
+  and its own close of a revoked phone's sessions, decide (rule 32).
+
+**Retries are idempotent:**
+- A phone that got `pending`, or lost the answer, retries as an ordinary
+  authenticated session of a paired key. gatewayd answers from the two files,
+  and `gateway.hello` reports `relay: "admitted" | "pending" | "off"`.
+- No retry creates a second entry or asks for a second approval for the same
+  key.
 
 ## 7. Paths, races and session replacement (rules 36, 37)
 
@@ -279,11 +402,20 @@ start ─► on Wi-Fi? ─yes─► LAN TCP to last address (then /24 probe) ─
     ending a working one.
   - Replacement before counting keeps PAIRING.md §7's promise that a phone
     that changed networks is not locked out.
+- **Eligibility before displacement.** A session that arrived through the
+  relay replaces nothing until the inner handshake has authenticated the
+  phone's key **and** gatewayd has checked eligibility on the channel it
+  actually arrived on (the socketpair, not a LAN socket): a paired key with a
+  valid `remote` grant (§6.1), or the relay candidate of a window that allows
+  the relay. A relay session that fails this is closed **without replacing**
+  the phone's LAN session. `via` and `client` take no part (rule 30).
 - **The relay budget counts after replacement**, everywhere along the
   path. A phone returning through the relay replaces its own dead relay
   session, rather than being refused by a limit of 1:
-  - **the relay:** a new `connect` from a client that already has a splice
-    to that unit ends the old splice;
+  - **the relay:** a new `connect` from a client that already holds the
+    unit's place ends the old splice when the new `connect` is admitted. If
+    the new `join` then fails, the phone has no relay session: the accepted
+    availability trade-off (Q10);
   - **the helper:** a new invitation for a client that already has a data
     connection closes the old one and its socketpair end, and gatewayd sees
     the old session end;
@@ -329,22 +461,44 @@ start ─► on Wi-Fi? ─yes─► LAN TCP to last address (then /24 probe) ─
   (`@doors-gatewayd-relay`). A path socket would not do: it would be root's
   0660 file, and gatewayd has no `CAP_CHOWN` to open it to the helper's
   group.
-  - gatewayd admits only a peer whose `SO_PEERCRED` uid is the helper's
-    reserved id.
+  - **Both ends verify the peer.** gatewayd admits only a peer whose
+    `SO_PEERCRED` uid is the helper's reserved id. The helper sends nothing
+    until it has checked that the listener's `SO_PEERCRED` uid is gatewayd's,
+    because any local process can bind an abstract name first.
   - gatewayd reads the line with `recv()` and no control buffer, so a
     descriptor the helper sends is discarded by the kernel.
   - It writes to the line non-blocking, through a bounded queue.
-  - **From the helper**, at most 256 bytes each and 20 per second, else the
-    connection is closed:
+  - **Generations and operations.** gatewayd numbers each relay connection
+    it asks for (`gen`). Set-up, adding a backup, promotion and its proof are
+    operations with an id (`op`), a fresh nonce and an expected pin.
+    gatewayd acts on a helper frame only for the **current** `gen` and an
+    **outstanding** `op`, with the expected pin. Anything else is discarded
+    and counted. So a frame about an old connection, a stale acknowledgement
+    or a replayed proof does nothing.
+  - **From the helper**, each with `gen`, at most 256 bytes each and 20 per
+    second, else the connection is closed:
     - `presented {spki_hash}`;
-    - `proof {spki, sig}`;
+    - `proof {op, spki, sig}`;
+    - `backup {op, spki_a, spki_hash_b, sig}`;
     - `sign_login {nonce, relay_key_hash}`, signed only if the hash is a pin,
       at most 1 per second;
+    - `registered` (the relay's acknowledgement of `register`, Q22);
+    - `admitted {n}`;
     - `want_session {cookie, via, client}`;
     - `state {..}`.
-  - **From gatewayd:** `admit`, `pair_slot`, `endorsement`, `signature`,
-    `prove {nonce}`, and `session {cookie}` **with one end of a fresh
-    non-blocking socketpair (SCM_RIGHTS, gatewayd to the helper only)**.
+  - **From gatewayd**, each with `gen`: `connect {purpose: setup | serve,
+    expected pin}`, `disconnect` (shutdown), `admit {n, list}`,
+    `pair_slot`, `endorsement`, `signature`, `get_backup {op, nonce}`,
+    `prove {op, nonce}`, `decline {cookie}`, and `session {cookie}` **with
+    one end of a fresh non-blocking socketpair (SCM_RIGHTS, gatewayd to the
+    helper only)**.
+  - **Work bounded by gatewayd itself,** so a compromised helper cannot raise
+    it: per loop turn, at most one helper frame and at most one relay TLS
+    handshake step; per session, reads within `GW_READ_BATCH`.
+  - **A phase 2 sandbox test** lists which local sockets (abstract and path)
+    and which network destinations the helper can reach under its id and
+    filter. The list is reviewed. Every local service it can reach must
+    check its peer's uid itself.
 - **The descriptor direction.** gatewayd keeps the other end. The two ends
   are separate open file descriptions, so the helper cannot change
   gatewayd's end's flags. gatewayd never receives a descriptor.
@@ -352,8 +506,13 @@ start ─► on Wi-Fi? ─yes─► LAN TCP to last address (then /24 probe) ─
 ### 8.2 Budgets in gatewayd
 
 Inside ADR-019 §6:
-- 1 relay session;
-- 1 relay handshake pending;
+- **at most 1 relay socket**, a session or its handshake. It matches the
+  relay's single place (§5.2) and the helper's single data connection
+  (§8.3). A same-phone replacement ends the old one first (§7.2), so there
+  is never a second;
+- the relay candidate's slot and wrong-token count are separate from the
+  LAN's (§6), and relay pairing may be busy while a remote phone's session
+  runs;
 - 1 relay handshake per second;
 - after n failed relay handshakes in a row, no relay session for 2^n s
   (capped at 5 min);
@@ -376,8 +535,12 @@ by `GW_READ_BATCH` (`main.c:2898`), so the loop is not changed.
 - control connection: 10 per second; more, or a malformed one, closes it and
   backs off;
 - invitations: at most 1 per second acted on, the rest declined;
-- data connections: 1 at a time; a new one for the same phone replaces it
-  (§7.2).
+- data connections: 1 at a time, counting one still waiting for its
+  `ready`. An invitation for the client that holds it replaces it: the old
+  data connection and its socketpair end are closed first (§7.2). An
+  invitation for another client is declined;
+- it publishes the first `pair_slot` of a connection only after
+  `registered`, and after gatewayd's admission snapshot.
 
 **Timeouts:**
 - TLS and the Upgrade: 10 s;
@@ -388,13 +551,17 @@ by `GW_READ_BATCH` (`main.c:2898`), so the loop is not changed.
 ### 8.4 What is left
 
 - **A hostile relay or a compromised helper can:** deny remote access, use
-  the helper's share of the hart at nice 10, and learn metadata.
+  the helper's share of the hart at nice 10, learn metadata, and claim that
+  an admission list is in force when it is not (gatewayd's own checks
+  decide, §6.1).
 - **They cannot:**
   - starve LAN phones (they keep their own slot);
   - starve gatewayd's loop (no relay parsing in it, no blocking descriptor,
     bounded reads);
   - stall the shell (the helper runs at nice 10, and relay handshakes are
-    limited to 1/s);
+    limited to 1/s). This is a design claim: a nice value and a reserved
+    slot are not evidence, so phase 2 measures LAN latency during a hostile
+    relay flood;
   - reach root or the device key.
 - **Not caused by the relay:** gatewayd's synchronous `upstream_call` (up to
   about 400 ms, `main.c:799-842`) can stall its loop for any paired phone,
@@ -493,21 +660,26 @@ Not in v1:
 | Unit, per relay session | Two handshakes: outer, in the helper; inner, in gatewayd. At most one relay handshake per second. Double encryption of at most 256 KiB/s | ASSUMED; H2 |
 | Unit, traffic | Status and RIFT: bytes per second. Vision about 35 KB/s while shown (`M6-STATUS.md`) | DOCUMENTED |
 | Phone | Nothing in the background | ASSUMED |
-| Relay | Go; a 1-vCPU host with 64-128 MB RAM serves tens of units | ASSUMED |
+| Relay | Go; a 1-vCPU host with 64-128 MB RAM serves tens of units | ASSUMED. Phase 1's connection-churn, shared-NAT and slow-reader runs are in `docs/api/relay.md` §15; they bound the relay's own costs on the test machine, not this host size |
 
 ## 13. The relay server (Go)
 
-- **Standard library only:** `crypto/tls`, `net/http` (Upgrade with
-  `Hijack`), `crypto/ecdsa`, `crypto/hkdf` (Go 1.24 and later).
+- **Standard library only:** `crypto/tls`, `net/http` (only
+  `ReadRequest`, on a TLS connection the relay owns: Q20 in
+  `docs/api/relay.md`), `crypto/ecdsa`, `crypto/hkdf` (Go 1.24 and later).
 - **Configuration:**
   - the listen address;
   - the key files (active, and backup when promoted), or a CA-issued
     certificate for the active key;
   - the enrolled unit fingerprints;
-  - the limits: per source address, 10 new connections per second and 64
-    unauthenticated; per unit, 1 control connection, 8 admitted phones, 1
-    pairing slot and 1 session (a new `connect` from the same phone replaces
-    its splice); per session, 90 s idle.
+  - the limits: per source (IPv4 address, IPv6 /64), 10 new connections
+    per second and 64 unauthenticated; a global connection cap; a hard cap on
+    tracked sources with bounded sweep work per accept; per unit, 1 control
+    connection, 8 admitted phones, 1 pairing slot and **1 place** (a new
+    `connect` from the phone holding it replaces its splice); per session,
+    90 s idle;
+  - logging through a bounded queue: a full queue drops and counts, and
+    refusals are rate-limited, so no connection path waits on output.
 - **Memory only:** admission lists, endorsements, pairing slots.
 - **Logs:** rule 41.
 - **Tools:**
@@ -617,13 +789,46 @@ The new findings, and the answers:
 **Notes:** the helper's `via` and `client` are hints, said in rule 30. The
 idea of an endorsement naming a new host was left out (§17).
 
+### 15.3 The second independent review (Codex, 2026-11-27)
+
+It reviewed this design at `e00a3ba1` (PR #192) and phase 1 at `81e19918`
+(PR #194). The verdicts:
+
+| Gate | Verdict |
+| --- | --- |
+| PR #192 | **GO for architecture**: "The outbound, local-first blind relay preserves the existing gateway trust boundary." Capacity, pairing-commit and recovery semantics to be resolved before it is the phase 2 contract |
+| PR #194 | **NO-GO** for phase 1 sign-off |
+| Phase 2 | **NO-GO** until the phase 1 blockers close and the helper's capacity, IPC and authority are settled |
+
+**The owner accepted every finding and every disposition**, and settled:
+- Q9: one relay place per unit in v1;
+- Q22: an explicit registration acknowledgement;
+- Q27: pending invitations end when the pairing window closes or changes.
+
+The answers:
+
+| # | Finding | Answer |
+| --- | --- | --- |
+| 1 (high) | Invitations validated outside the transition that consumes them: no expiry or issuing-control check at `join`; invalidation after unlocking; `decline` without the control generation | Each invitation carries its control generation, its slot generation and a monotonic deadline. `join` validates and consumes in one critical section. Replacement, loss and slot changes end pending invitations inside theirs. `decline` counts only on its own generation (`docs/api/relay.md` §7.2-7.4; PR #194) |
+| 2 (high) | `admitted` before effective revocation; a superseded control acknowledged | Both legs closed, and the copy goroutines returned, before `admitted`. `forwarding` is entered only under the lock. Acknowledgements only for committed updates on the current generation. gatewayd's own check and close stay authoritative (rule 32; §6.1) |
+| 3 (high) | Two relay places at the relay, one at the unit | **One place**, everywhere: relay, helper, gatewayd (§5.2, §8.2, §8.3). Relay pairing can be busy during a remote session. Separate LAN and relay candidate state kept (§6) |
+| 4 (high) | Pairing with `remote` has no defined commit, retry or recovery | §6.1: pairing, the grant and confirmed admission are separate states. The two-file rule with digests. An explicit `pending` outcome. A full snapshot after every `registered`. Idempotent retries. Acknowledgements matched to generation and `n`, and only the relay's word |
+| 5 (medium) | Source tracking and logging unbounded by the connection cap | A hard cap on tracked sources, bounded sweep work, a bounded non-blocking log queue with rate-limited refusals. Churn, shared-NAT and slow-reader runs measured in phase 1 (§12, §13) |
+| Rotation | Promotion persistence; "phones follow by endorsement" wrong after total key loss; the runbook | One durable write for `A := B`, removal and `seq + 1`, then old-key connections closed (§4.1). §4.4 corrected, with the runbook (rule 31) |
+| IPC | Generation-bound IPC, peers verified both ways, bounds that gatewayd enforces, a sandbox reachability test | §8.1 (rule 38) |
+| Replacement | Check `remote` before a relay attempt can displace a LAN session | Eligibility on the actual ingress path before any displacement (§7.2; rule 37) |
+| Q7 | Set-up over a fresh pinned connection; rule 28's wording; the set-up dial under rule 29; the deadline across durable writes | §4.1 steps 2-7 and promotion step 5; rules 28 and 29 |
+
+The 27 wire decisions and their resolution are in `docs/api/relay.md` §14.
+The tests and measurements that phase 1 now requires are listed in §16.
+
 ## 16. Phases (each with its own go-ahead)
 
 | Phase | What | Done when |
 | --- | --- | --- |
 | **0. Local paths** (with 1) | (a) The SkullerudPark root cause, with phone-side evidence. (b) F1: the unit on the phone's hotspot. Today's app binds only to networks the phone *joined*; allow the phone's own tethering subnet only (README H3/H12). (c) F2, the unit's access point on `wlan1`, in its own ADR | Recorded; F1 works on the Flip8; F2 decided |
-| **1. Protocol and server** | `docs/api/relay.md`; the Go server and its tools; Go tests, `-race`, fuzzing; a lying test relay | Green; protocol and server reviewed |
-| **2. Unit** | The helper (id, seccomp, limits); `S70gatewayd` and sysd; gatewayd's `relay.v1`, socket, socketpairs, budgets, `remote`, two candidate slots, endorsements, `key_proof`, listener independence; Settings; host integration with the real Go relay; cross-build | Off by default; the helper cannot read the key; a revoked phone loses its relay session within a second; the lying relay and a hostile helper gain nothing; a LAN phone is served during a flood |
+| **1. Protocol and server** | `docs/api/relay.md`; the Go server and its tools; Go tests, `-race`, fuzzing; a lying test relay | Green under umask 022 and 077. Deterministic tests for `join` against expiry, control replacement and slot changes, revocation during `ready` and with forwarding blocked, stale-control acknowledgements, and the pairing acknowledgement's timeout and retry through the pairing flow. Bounded connection-churn and slow-reader runs recorded. An independent re-review's GO |
+| **2. Unit** | The helper (id, seccomp, limits); `S70gatewayd` and sysd; gatewayd's `relay.v1` (§6.1), socket, generation-bound IPC (§8.1), socketpairs, budgets, `remote`, two candidate slots, endorsements, `key_proof`, listener independence; Settings; host integration with the real Go relay; cross-build | Off by default. The helper cannot read the key, and its reachable sockets and destinations are listed and reviewed. The real C helper and gatewayd pass against the Go relay, with independent wire vectors. Promotion and revocation are restart-safe (fault injection). LAN and relay pairing state are separate. A revoked phone loses its relay session within a second. The lying relay and a hostile helper gain nothing. **LAN responsiveness is measured** during hostile relay traffic. Starts only with the owner's go-ahead, after phase 1's sign-off |
 | **3. Android** | `RelayTransport`; pinned and provisional contexts; endorsements; proxy and captive portal; paths; pairing with `r`; UI; lint | JVM tests against the real relay and gatewayd |
 | **4. Hardware gate** | Unit B on an isolating network, the phone on mobile data: first pairing through the relay with the keys compared; `remote` off, then the tap after it is given; revocation; reboot; relay restart; promotion of the backup with the phone away; Vision and PacketShark; handshake cost and frame time; a relay flood with a LAN phone working | PASS per part, owner present |
 | **5. Release** | Independent security review of the code; the relay's install guide | Owner's acceptance |
