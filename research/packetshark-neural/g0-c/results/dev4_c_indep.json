@@ -5,8 +5,8 @@
   "dns.time": 0.96229,
   "dns.answered": 0.94504,
   "dns.failed": 0.93488,
-  "dhcp.discover": 0.80992,
-  "arp.request": 0.81371
+  "dhcp.discover": 0.79654,
+  "arp.request": 0.80954
  },
  "top_differences": [
   [
@@ -34,6 +34,10 @@
    892
   ],
   [
+   "dhcp.discover no-change/- -> cant-tell/weak",
+   743
+  ],
+  [
    "arp.request worse/- -> cant-tell/one-way",
    726
   ],
@@ -42,28 +46,20 @@
    683
   ],
   [
+   "arp.request worse/- -> cant-tell/loss-explains",
+   659
+  ],
+  [
    "arp.request no-change/- -> cant-tell/weak",
-   549
+   626
   ],
   [
    "dns.failed no-change/- -> cant-tell/weak",
    534
   ],
   [
-   "dhcp.discover no-change/- -> cant-tell/weak",
-   419
-  ],
-  [
-   "arp.request worse/- -> cant-tell/loss-explains",
-   397
-  ],
-  [
-   "arp.request worse/- -> small/-",
-   395
-  ],
-  [
    "arp.request better/- -> cant-tell/loss-explains",
-   180
+   174
   ],
   [
    "dhcp.discover worse/- -> cant-tell/one-way",
@@ -82,8 +78,16 @@
    118
   ],
   [
+   "arp.request worse/- -> small/-",
+   103
+  ],
+  [
    "dns.time cant-tell/one-way -> small/-",
    102
+  ],
+  [
+   "dhcp.discover worse/- -> cant-tell/loss-explains",
+   100
   ],
   [
    "dns.time cant-tell/one-way -> worse/-",
@@ -91,23 +95,19 @@
   ],
   [
    "arp.request worse/- -> no-change/-",
-   81
-  ],
-  [
-   "dhcp.discover worse/- -> small/-",
-   73
+   80
   ],
   [
    "arp.request worse/- -> cant-tell/weak",
-   60
+   61
   ],
   [
-   "dns.answered cant-tell/one-way -> better/-",
-   41
+   "arp.request better/- -> no-change/-",
+   54
   ],
   [
-   "dns.answered worse/- -> cant-tell/loss-explains",
-   40
+   "arp.request worse/- -> cant-tell/loss-unknown",
+   51
   ]
  ],
  "g0_mirror": {
@@ -271,9 +271,9 @@
    "rate": 0.0022
   },
   "abstention_material": {
-   "k": 4864,
+   "k": 4962,
    "n": 10091,
-   "rate": 0.482
+   "rate": 0.4917
   },
   "per_fault": {
    "dns_down": {
@@ -297,13 +297,13 @@
    "arp_storm": {
     "n": 2019,
     "recall": 0.727,
-    "abstained": 0.234,
+    "abstained": 0.272,
     "no_change": 0.001
    },
    "dhcp_trouble": {
     "n": 1923,
     "recall": 0.752,
-    "abstained": 0.232,
+    "abstained": 0.244,
     "no_change": 0.004
    },
    "subtle_latency": {

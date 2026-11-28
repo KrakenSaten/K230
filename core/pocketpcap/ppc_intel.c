@@ -993,11 +993,15 @@ static uint32_t qle(double k, double mu, double phi)
  * time only from PPC_IN_SLOWER_PCT: minute-scale variation, which no block
  * inside a minute can see, does not make one. A significant rise below that
  * is a small change, never a worsening (G0.md §8.4). */
-static void decide_rate(struct ppc_in_cmp *c, const double f[2][2], const double lost[2], double phi)
+static void decide_rate(struct ppc_in_cmp *c, const double f[2][2], const double lost[2], double phi, uint32_t gap1)
 {
     double c0 = c->k[0];
     double w0 = c->n[0];
     double w1 = c->n[1];
+    /* "better" and "no change" stand on the window's seconds seen: a receive
+     * gap in it may have hidden events (a rise is judged on all its watched
+     * seconds, above, so that quiet seconds cannot make one) */
+    double w1s = c->n[1] > gap1 ? (double)(c->n[1] - gap1) : 0.0;
     double hi0 = c0 + lost[0];
     double up = (hi0 + Z_BOUND * sqrt(phi * (hi0 + 1.0)) + 1.0) / w0 * w1;
     double up_seen = (c0 + Z_BOUND * sqrt(phi * (c0 + 1.0)) + 1.0) / w0 * w1;
@@ -1011,14 +1015,16 @@ static void decide_rate(struct ppc_in_cmp *c, const double f[2][2], const double
     if (alt < r0 + PPC_IN_MATERIAL_RATE_MIN / 60.0) {
         alt = r0 + PPC_IN_MATERIAL_RATE_MIN / 60.0;
     }
-    dn = dn > 0.0 ? dn / w0 * w1 : 0.0;
+    dn = dn > 0.0 ? dn / w0 * w1s : 0.0;
     settle(c, isfinite(up) ? qge(c1, up * PPC_IN_RISE_PCT / 100.0, phi) : 1000000u,
            dn > 0.0 && hi1_known ? qle(hi1, dn, phi) : 1000000u,
            f[1][1] >= 1.0 ? 0u : qge(c1, scaled(up_seen, f[0][0], f[1][1]), phi),
            dn > 0.0 ? qle(c1, scaled(dn, f[0][1], f[1][0]), phi) : 1000000u,
-           hi1_known ? qle(hi1, alt * w1, phi) : 1000000u);
+           hi1_known ? qle(hi1, alt * w1s, phi) : 1000000u);
+    /* SMALL only where a material rise is ruled out as for "no change": a
+     * storm the window's losses could hide is CAN'T TELL, never small. */
     if (c->verdict != PPC_INV_WORSE && c->verdict != PPC_INV_BETTER && isfinite(up) &&
-        qge(c1, up, phi) < PPC_IN_ALPHA_E6) {
+        qge(c1, up, phi) < PPC_IN_ALPHA_E6 && hi1_known && qle(hi1, alt * w1s, phi) < PPC_IN_ALPHA_E6) {
         c->verdict = PPC_INV_SMALL; /* a significant rise, below the practical bound */
         c->reason = PPC_INR_NONE;
         c->p_e6 = qge(c1, up, phi);
@@ -1536,7 +1542,7 @@ static void compute(const struct ppc_intel *in, const struct ppc_in_mark *m, uns
 
             lost[i] = own > share ? own : share;
         }
-        decide_rate(c, f, lost, phi);
+        decide_rate(c, f, lost, phi, gaps[1]);
     }
     c->quality = c->verdict == PPC_INV_CANT_TELL                                              ? PPC_INQ_INSUFFICIENT
                  : (c->notes & (PPC_INN_UNWATCHED | PPC_INN_LOSS | PPC_INN_UNDECIDED)) != 0u ? PPC_INQ_DEGRADED

@@ -5,8 +5,8 @@
   "dns.time": 0.977,
   "dns.answered": 0.96446,
   "dns.failed": 0.94033,
-  "dhcp.discover": 0.94925,
-  "arp.request": 0.94263
+  "dhcp.discover": 0.94912,
+  "arp.request": 0.94258
  },
  "top_differences": [
   [
@@ -14,12 +14,8 @@
    954
   ],
   [
-   "arp.request worse/- -> small/-",
-   701
-  ],
-  [
    "dhcp.discover no-change/- -> cant-tell/weak",
-   618
+   621
   ],
   [
    "dns.answered cant-tell/one-way -> no-change/-",
@@ -34,16 +30,24 @@
    357
   ],
   [
+   "arp.request worse/- -> small/-",
+   351
+  ],
+  [
+   "arp.request worse/- -> cant-tell/loss-explains",
+   331
+  ],
+  [
    "arp.request no-change/- -> cant-tell/weak",
-   258
+   259
   ],
   [
    "dhcp.discover worse/- -> cant-tell/weak",
    209
   ],
   [
-   "dhcp.discover worse/- -> small/-",
-   194
+   "dhcp.discover worse/- -> cant-tell/loss-explains",
+   192
   ],
   [
    "dns.answered no-change/- -> cant-tell/weak",
@@ -55,7 +59,7 @@
   ],
   [
    "arp.request worse/- -> cant-tell/weak",
-   130
+   132
   ],
   [
    "arp.request no-change/- -> cant-tell/not-watched",
@@ -64,6 +68,10 @@
   [
    "arp.request worse/- -> no-change/-",
    87
+  ],
+  [
+   "arp.request worse/- -> cant-tell/loss-unknown",
+   62
   ],
   [
    "dns.answered no-change/- -> cant-tell/not-watched",
@@ -100,14 +108,6 @@
   [
    "dns.answered cant-tell/one-way -> worse/-",
    37
-  ],
-  [
-   "arp.request worse/- -> cant-tell/loss-explains",
-   36
-  ],
-  [
-   "dns.answered cant-tell/loss-unknown -> no-change/-",
-   32
   ]
  ],
  "g0_mirror": {
@@ -271,9 +271,9 @@
    "rate": 0.0171
   },
   "abstention_material": {
-   "k": 4089,
+   "k": 4553,
    "n": 9951,
-   "rate": 0.4109
+   "rate": 0.4575
   },
   "per_fault": {
    "dns_down": {
@@ -297,13 +297,13 @@
    "arp_storm": {
     "n": 1976,
     "recall": 0.787,
-    "abstained": 0.073,
+    "abstained": 0.21,
     "no_change": 0.003
    },
    "dhcp_trouble": {
     "n": 1991,
     "recall": 0.742,
-    "abstained": 0.161,
+    "abstained": 0.258,
     "no_change": 0.0
    },
    "subtle_latency": {

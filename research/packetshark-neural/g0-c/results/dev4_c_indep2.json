@@ -5,8 +5,8 @@
   "dns.time": 0.77692,
   "dns.answered": 0.68371,
   "dns.failed": 0.72971,
-  "dhcp.discover": 0.84908,
-  "arp.request": 0.68125
+  "dhcp.discover": 0.83842,
+  "arp.request": 0.67704
  },
  "top_differences": [
   [
@@ -23,11 +23,15 @@
   ],
   [
    "arp.request no-change/- -> cant-tell/weak",
-   1761
+   1835
+  ],
+  [
+   "dhcp.discover no-change/- -> cant-tell/weak",
+   1210
   ],
   [
    "arp.request better/- -> no-change/-",
-   1160
+   1189
   ],
   [
    "dhcp.discover no-change/- -> cant-tell/one-way",
@@ -35,19 +39,15 @@
   ],
   [
    "dhcp.discover cant-tell/weak -> no-change/-",
-   1109
-  ],
-  [
-   "dhcp.discover no-change/- -> cant-tell/weak",
-   943
+   1108
   ],
   [
    "arp.request worse/- -> cant-tell/loss-explains",
-   878
+   1064
   ],
   [
    "arp.request worse/- -> cant-tell/weak",
-   788
+   803
   ],
   [
    "dns.time cant-tell/one-way -> worse/-",
@@ -79,15 +79,15 @@
   ],
   [
    "arp.request better/- -> cant-tell/loss-explains",
-   466
+   463
   ],
   [
    "arp.request no-change/- -> cant-tell/one-way",
    402
   ],
   [
-   "arp.request worse/- -> small/-",
-   240
+   "dhcp.discover worse/- -> cant-tell/loss-explains",
+   160
   ],
   [
    "dns.answered cant-tell/one-way -> better/-",
@@ -98,16 +98,16 @@
    115
   ],
   [
-   "dhcp.discover worse/- -> small/-",
-   115
-  ],
-  [
    "dhcp.discover worse/- -> cant-tell/one-way",
    110
   ],
   [
    "arp.request cant-tell/weak -> no-change/-",
-   104
+   103
+  ],
+  [
+   "dhcp.discover worse/- -> cant-tell/weak",
+   70
   ]
  ],
  "g0_mirror": {
@@ -271,9 +271,9 @@
    "rate": 0.0023
   },
   "abstention_material": {
-   "k": 5134,
+   "k": 5293,
    "n": 10744,
-   "rate": 0.4778
+   "rate": 0.4926
   },
   "per_fault": {
    "dns_down": {
@@ -297,13 +297,13 @@
    "arp_storm": {
     "n": 2144,
     "recall": 0.726,
-    "abstained": 0.234,
+    "abstained": 0.272,
     "no_change": 0.001
    },
    "dhcp_trouble": {
     "n": 2039,
     "recall": 0.781,
-    "abstained": 0.18,
+    "abstained": 0.218,
     "no_change": 0.001
    },
    "subtle_latency": {
