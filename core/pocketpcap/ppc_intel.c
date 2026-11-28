@@ -560,6 +560,92 @@ static void vis_of(const struct ppc_intel *in, uint32_t a, uint32_t b, uint32_t 
     loss_of(in, a, loss_b, v);
 }
 
+/* The lost frames of [a, b) by the second: each loss interval's count
+ * spread over the seconds it covers by the frames seen in them (by time
+ * where none were seen). out[i] is second sec_ceil(a) + i. Returns the
+ * number of seconds, at most max. */
+static uint32_t loss_by_second(const struct ppc_intel *in, uint32_t a, uint32_t b, double *out, uint32_t max)
+{
+    uint32_t s0 = sec_ceil(a);
+    uint32_t s1 = sec_ceil(b);
+    uint32_t n = in->nread < PPC_IN_READINGS ? in->nread : PPC_IN_READINGS;
+    uint32_t ns = s1 > s0 ? s1 - s0 : 0u;
+    uint32_t i;
+    uint32_t s;
+
+    if (ns > max) {
+        ns = max;
+    }
+    for (i = 0; i < ns; i++) {
+        out[i] = 0.0;
+    }
+    for (i = 0; i < n; i++) {
+        const struct ppc_in_read *r = &in->reads[(in->nread - n + i) & READ_MASK];
+        uint32_t r0 = r->from_ms / 1000u;
+        uint32_t r1 = sec_ceil(r->to_ms);
+        double seen = 0.0;
+
+        if (!r->lost || r->to_ms <= a || r->from_ms >= b) {
+            continue;
+        }
+        for (s = r0; s < r1; s++) {
+            const struct ppc_in_sec *x = sec_slot(in, s);
+
+            seen += x ? x->frames : 0u;
+        }
+        for (s = r0 > s0 ? r0 : s0; s < r1 && s < s0 + ns; s++) {
+            const struct ppc_in_sec *x = sec_slot(in, s);
+            double part = seen > 0.0 ? (x ? x->frames : 0u) / seen : 1.0 / (double)(r1 - r0);
+
+            out[s - s0] += r->lost * part;
+        }
+    }
+    return ns;
+}
+
+/* What a stream counted by the second (DHCP DISCOVERs: 0, ARP requests: 1)
+ * may have lost in [a, b), at its own arrival times: in each second, the
+ * second's lost frames times the stream's part of the frames seen in it.
+ * Kernel drops are by arrival time, not by frame kind, so a stream spread
+ * over the minute loses what its own seconds lost, not the share that
+ * bursts of other traffic put on the window (G0.md §6). A second that lost
+ * frames and saw none is given the stream's part of the whole window.
+ * Infinite when the losses are not known. */
+static double stream_lost(const struct ppc_intel *in, uint32_t a, uint32_t b, unsigned which, int known)
+{
+    double lost[PPC_IN_WINDOW_MS / 1000u + 2u];
+    uint32_t s0 = sec_ceil(a);
+    uint32_t ns;
+    uint32_t i;
+    double fw = 0.0;
+    double nw = 0.0;
+    double e = 0.0;
+
+    if (!known) {
+        return INFINITY;
+    }
+    ns = loss_by_second(in, a, b, lost, (uint32_t)(sizeof(lost) / sizeof(lost[0])));
+    for (i = 0; i < ns; i++) {
+        const struct ppc_in_sec *x = sec_slot(in, s0 + i);
+
+        if (x) {
+            fw += x->frames;
+            nw += which ? x->arp_req : x->dhcp_disc;
+        }
+    }
+    for (i = 0; i < ns; i++) {
+        const struct ppc_in_sec *x = sec_slot(in, s0 + i);
+        double f = x ? x->frames : 0.0;
+        double k = x ? (which ? x->arp_req : x->dhcp_disc) : 0.0;
+
+        if (lost[i] <= 0.0) {
+            continue;
+        }
+        e += f > 0.0 ? k * lost[i] / f : (fw > 0.0 ? lost[i] * nw / fw : lost[i]);
+    }
+    return e;
+}
+
 static uint32_t span_s(const struct ppc_in_vis *v)
 {
     return v->watched_s + v->held_s + v->shed_s + v->gap_s;
@@ -787,12 +873,23 @@ static double cap1(double p)
 /* A share whose harmful direction is lower (dir -1: answered) or higher
  * (+1: failed), with loss bounds f[side][lo, hi]; all 0 when loss leaves
  * the share as it was. "No change" also needs the window to rule out a
- * material worsening (PPC_IN_MATERIAL_*), at the loss that favours it. */
-static void decide_share(struct ppc_in_cmp *c, int dir, const double f[2][2])
+ * material worsening (PPC_IN_MATERIAL_*), at the loss that favours it.
+ * unseen[side] are the questions or answers the share could not judge,
+ * counted as works against each verdict (G0.md §6):
+ *   answered  questions left undecided (no watched wait, no way back
+ *             seen) may have been answered or not. Only an answered
+ *             question is always decided, so leaving them out would
+ *             favour "answered": "fewer" counts the window's as answered
+ *             and the base's as not; "more" and "no change" the reverse;
+ *   failed    answers not seen (lost, or never sent) may all have been
+ *             failures: "fewer failures" and "no change" count them so. */
+static void decide_share(struct ppc_in_cmp *c, int dir, const double f[2][2], const uint32_t unseen[2])
 {
     double lo0, hi0;
     uint32_t k = c->k[1];
     uint32_t n = c->n[1];
+    uint32_t u0 = unseen[0];
+    uint32_t u1 = unseen[1];
 
     wilson(c->k[0], c->n[0], &lo0, &hi0);
     if (dir < 0) {
@@ -800,50 +897,70 @@ static void decide_share(struct ppc_in_cmp *c, int dir, const double f[2][2])
          * window seen under loss can be expected to show at most 1 - f1 of
          * it. worse = fewer: cons expects the fewest, aggr the most. better
          * is impossible against a base whose true share may already be 1. */
-        double t_cw = cap1(scaled(lo0, f[0][0], 0.0));
-        double t_aw = cap1(scaled(lo0, f[0][1], 0.0));
-        double t_cb = cap1(scaled(hi0, f[0][1], 0.0));
-        double t_ab = cap1(scaled(hi0, f[0][0], 0.0));
-        double alt = t_ab * PPC_IN_MATERIAL_SHARE_PCT / 100.0 * (1.0 - f[1][0]);
+        double lo0w, hi0w, lo0a, hi0a;
+        double t_cw, t_aw, t_cb, t_ab, t_ro, alt;
 
-        settle(c, ppc_in_binom_le_e6(k, n, t_cw * (1.0 - f[1][1])),
-               t_cb < 1.0 ? ppc_in_binom_ge_e6(k, n, t_cb * (1.0 - f[1][0])) : 1000000u,
+        wilson(c->k[0], c->n[0] + u0, &lo0w, &hi0w);      /* the base's lowest */
+        wilson(c->k[0] + u0, c->n[0] + u0, &lo0a, &hi0a); /* the base's highest */
+        t_cw = cap1(scaled(lo0w, f[0][0], 0.0));
+        t_aw = cap1(scaled(lo0, f[0][1], 0.0));
+        t_cb = cap1(scaled(hi0a, f[0][1], 0.0));
+        t_ab = cap1(scaled(hi0, f[0][0], 0.0));
+        t_ro = cap1(scaled(hi0a, f[0][0], 0.0));
+        alt = t_ro * PPC_IN_MATERIAL_SHARE_PCT / 100.0 * (1.0 - f[1][0]);
+        settle(c, ppc_in_binom_le_e6(k + u1, n + u1, t_cw * (1.0 - f[1][1])),
+               t_cb < 1.0 ? ppc_in_binom_ge_e6(k, n + u1, t_cb * (1.0 - f[1][0])) : 1000000u,
                ppc_in_binom_le_e6(k, n, t_aw * (1.0 - f[1][0])),
                t_ab < 1.0 ? ppc_in_binom_ge_e6(k, n, t_ab * (1.0 - f[1][1])) : 1000000u,
-               ppc_in_binom_ge_e6(k, n, alt));
+               ppc_in_binom_ge_e6(k, n + u1, alt));
     } else {
         double alt = cap1(hi0 + PPC_IN_MATERIAL_FAIL_PCT / 100.0);
 
-        settle(c, ppc_in_binom_ge_e6(k, n, hi0), ppc_in_binom_le_e6(k, n, lo0), ppc_in_binom_ge_e6(k, n, hi0),
-               ppc_in_binom_le_e6(k, n, lo0), alt >= 1.0 ? 1000000u : ppc_in_binom_le_e6(k, n, alt));
+        settle(c, ppc_in_binom_ge_e6(k, n, hi0), ppc_in_binom_le_e6(k + u1, n + u1, lo0),
+               ppc_in_binom_ge_e6(k, n, hi0), ppc_in_binom_le_e6(k, n, lo0),
+               alt >= 1.0 ? 1000000u : ppc_in_binom_le_e6(k + u1, n + u1, alt));
     }
 }
 
 /* A rate whose harmful direction is higher: events over watched seconds.
- * Loss hides events, so a rise can be hidden and a fall can be made. A
- * material rise is PPC_IN_MATERIAL_RATE times the base's rate, or
- * PPC_IN_MATERIAL_RATE_MIN more a minute, whichever is more. */
-static void decide_rate(struct ppc_in_cmp *c, const double f[2][2])
+ * Loss hides events, so a rise can be hidden and a fall can be made. Each
+ * side's true count lies between what was seen and that plus what the
+ * stream may have lost (lost[side]: the larger of its own seconds' share
+ * and the traffic's share; infinite when unknown). A verdict must hold at
+ * the bound that works against it (G0.md §6):
+ *   worse      the window's count as seen (it can only have been more)
+ *              against the base's highest;
+ *   better     the window's highest against the base as seen;
+ *   no change  the window's highest below a material rise over the base
+ *              as seen (PPC_IN_MATERIAL_RATE times, or
+ *              PPC_IN_MATERIAL_RATE_MIN more a minute, whichever is more).
+ * The window's losses never make a rise: a claim of more events stands on
+ * events seen. Where only the traffic-weighted share (loss spread evenly
+ * over kinds and times) would decide, the verdict is CAN'T TELL. */
+static void decide_rate(struct ppc_in_cmp *c, const double f[2][2], const double lost[2])
 {
     double c0 = c->k[0];
+    double w0 = c->n[0];
     double w1 = c->n[1];
-    double up = (c0 + Z_BOUND * sqrt(c0 + 1.0) + 1.0) / c->n[0] * w1;
+    double hi0 = c0 + lost[0];
+    double up = (hi0 + Z_BOUND * sqrt(hi0 + 1.0) + 1.0) / w0 * w1;
+    double up_seen = (c0 + Z_BOUND * sqrt(c0 + 1.0) + 1.0) / w0 * w1;
     double dn = c0 - Z_BOUND * sqrt(c0 + 1.0);
-    double r0 = c0 / c->n[0];
+    double r0 = c0 / w0;
     double alt = r0 * PPC_IN_MATERIAL_RATE;
+    double hi1 = c->k[1] + lost[1];
     uint32_t c1 = c->k[1];
+    uint32_t c1hi = isfinite(hi1) && hi1 < 4.0e9 ? (uint32_t)ceil(hi1) : 0xffffffffu;
 
     if (alt < r0 + PPC_IN_MATERIAL_RATE_MIN / 60.0) {
         alt = r0 + PPC_IN_MATERIAL_RATE_MIN / 60.0;
     }
-    dn = dn > 0.0 ? dn / c->n[0] * w1 : 0.0;
-    /* A window whose losses are not known may have lost any number of
-     * events: a rise in it cannot be excluded, even from nothing seen. */
-    settle(c, ppc_in_poisson_ge_e6(c1, scaled(up, f[0][1], f[1][0])),
-           dn > 0.0 ? ppc_in_poisson_le_e6(c1, scaled(dn, f[0][0], f[1][1])) : 1000000u,
-           f[1][1] >= 1.0 ? 0u : ppc_in_poisson_ge_e6(c1, scaled(up, f[0][0], f[1][1])),
+    dn = dn > 0.0 ? dn / w0 * w1 : 0.0;
+    settle(c, isfinite(up) ? ppc_in_poisson_ge_e6(c1, up) : 1000000u,
+           dn > 0.0 && c1hi != 0xffffffffu ? ppc_in_poisson_le_e6(c1hi, dn) : 1000000u,
+           f[1][1] >= 1.0 ? 0u : ppc_in_poisson_ge_e6(c1, scaled(up_seen, f[0][0], f[1][1])),
            dn > 0.0 ? ppc_in_poisson_le_e6(c1, scaled(dn, f[0][1], f[1][0])) : 1000000u,
-           ppc_in_poisson_le_e6(c1, scaled(alt * w1, f[0][0], f[1][1])));
+           c1hi == 0xffffffffu ? 1000000u : ppc_in_poisson_le_e6(c1hi, alt * w1));
 }
 
 /* Answer times: medians and Mann-Whitney over the answers seen. The answers
@@ -1004,6 +1121,89 @@ static int one_way_spell(const struct ppc_intel *in, uint32_t a, uint32_t m, uin
     return 0;
 }
 
+/* Gaps in what reached the capture at all: runs of watched seconds in
+ * which no frame arrived except this device's own, and none was lost
+ * either (the readings say so), longer than the busier window's arrival
+ * rate makes plausible (P(no frame) <= 1/1000), thinned only by the loss
+ * the readings prove. A receive path that stopped (one-sided visibility)
+ * hides broadcasts as well as this device's replies, and the lost-frame
+ * counter does not see it: the frames never reached the interface
+ * (G0.md §6). Such seconds were not seen, as seconds on HOLD were not:
+ * gap[i] is set for second sec_ceil(a) + i of every such run, whole. A
+ * second whose silence the readings explain (frames lost in it), or whose
+ * losses are not known, neither lengthens nor breaks a run: the rate's
+ * loss bounds speak for those. Returns the number of gap seconds. */
+static uint32_t recv_gaps(const struct ppc_intel *in, uint32_t a, uint32_t m, uint32_t b, const double f[2][2],
+                          uint8_t *gap, uint32_t max)
+{
+    double lost[2u * (PPC_IN_WINDOW_MS / 1000u) + 2u];
+    uint32_t s0 = sec_ceil(a);
+    uint32_t s1 = sec_ceil(b);
+    uint32_t sm = sec_ceil(m);
+    uint32_t nl = loss_by_second(in, a, b, lost, (uint32_t)(sizeof(lost) / sizeof(lost[0])));
+    uint64_t got[2] = { 0, 0 };
+    uint32_t ws[2] = { 0, 0 };
+    uint32_t run_s[2u * (PPC_IN_WINDOW_MS / 1000u) + 2u];
+    uint32_t run = 0;
+    uint32_t total = 0;
+    double lam = 0.0;
+    uint32_t s;
+    uint32_t i;
+    unsigned w;
+
+    for (i = 0; i < max; i++) {
+        gap[i] = 0;
+    }
+    for (s = s0; s < s1; s++) {
+        const struct ppc_in_sec *x = sec_slot(in, s);
+
+        if (x && x->flags == PPC_EVS_WATCHED) {
+            w = s >= sm;
+            got[w] += x->frames > x->own_out ? x->frames - x->own_out : 0u;
+            ws[w]++;
+        }
+    }
+    for (w = 0; w < 2; w++) {
+        double r = ws[w] ? (double)got[w] / ws[w] * (1.0 - f[w][0]) : 0.0;
+
+        if (r > lam) {
+            lam = r;
+        }
+    }
+    if (!(lam > 0.0)) {
+        return 0;
+    }
+    for (s = s0; s < s1 && s - s0 < max; s++) {
+        const struct ppc_in_sec *x = sec_slot(in, s);
+
+        if (!x || x->flags != PPC_EVS_WATCHED) {
+            continue;
+        }
+        if (x->frames > x->own_out) {
+            run = 0;
+            continue;
+        }
+        if ((s - s0 < nl && lost[s - s0] > 0.0) || s * 1000u < in->reads_from_ms || (s + 1u) * 1000u > in->read_ms) {
+            continue; /* explained by loss, or its losses not known */
+        }
+        if (run < sizeof(run_s) / sizeof(run_s[0])) {
+            run_s[run] = s;
+        }
+        run++;
+        if (lam * run >= ONE_WAY_LOG_P) {
+            uint32_t n = run < sizeof(run_s) / sizeof(run_s[0]) ? run : (uint32_t)(sizeof(run_s) / sizeof(run_s[0]));
+
+            for (i = 0; i < n; i++) {
+                if (!gap[run_s[i] - s0]) {
+                    gap[run_s[i] - s0] = 1;
+                    total++;
+                }
+            }
+        }
+    }
+    return total;
+}
+
 static void compute(const struct ppc_intel *in, const struct ppc_in_mark *m, unsigned pair, unsigned metric,
                     struct ppc_in_cmp *c)
 {
@@ -1011,6 +1211,8 @@ static void compute(const struct ppc_intel *in, const struct ppc_in_mark *m, uns
     uint32_t w[2][2];
     uint32_t sums[2][6];
     double f[2][2];
+    uint8_t gap[2u * (PPC_IN_WINDOW_MS / 1000u) + 2u];
+    uint32_t gaps[2] = { 0, 0 };
     unsigned cls = metric_class(metric);
     int dns = cls == PPC_CLASS_DNS;
     uint32_t end = obs_end(in);
@@ -1080,6 +1282,28 @@ static void compute(const struct ppc_intel *in, const struct ppc_in_mark *m, uns
         for (i = 0; i < 2; i++) {
             c->n[i] = c->vis[i].watched_s;
             c->k[i] = sums[i][metric == PPC_INM_DHCP_DISCOVER ? 0 : 1];
+        }
+        if (recv_gaps(in, w[0][0], w[1][0], w[1][1], (const double(*)[2])f, gap,
+                      (uint32_t)(sizeof(gap) / sizeof(gap[0])))) {
+            /* the gaps' seconds and events leave both counts */
+            uint32_t s0 = sec_ceil(w[0][0]);
+            uint32_t sm = sec_ceil(w[1][0]);
+            uint32_t s;
+
+            for (s = s0; s < sec_ceil(w[1][1]) && s - s0 < sizeof(gap); s++) {
+                const struct ppc_in_sec *x = sec_slot(in, s);
+
+                if (gap[s - s0] && x) {
+                    unsigned side = s >= sm;
+
+                    c->n[side]--;
+                    c->k[side] -= metric == PPC_INM_DHCP_DISCOVER ? x->dhcp_disc : x->arp_req;
+                    gaps[side]++;
+                }
+            }
+            c->notes |= PPC_INN_UNWATCHED;
+        }
+        for (i = 0; i < 2; i++) {
             c->stat[i] = c->n[i] ? c->k[i] * 6000u / c->n[i] : 0;
         }
         break;
@@ -1103,6 +1327,9 @@ static void compute(const struct ppc_intel *in, const struct ppc_in_mark *m, uns
         c->reason = PPC_INR_NOT_WATCHED;
     } else if (dns && (one_way(&c->vis[0]) || one_way(&c->vis[1]) || one_way_spell(in, w[0][0], w[1][0], w[1][1], f[1][1]))) {
         c->reason = PPC_INR_ONE_WAY;
+    } else if (!dns && ((gaps[0] && c->n[0] * 2u < span_s(&c->vis[0])) ||
+                        (gaps[1] && c->n[1] * 2u < span_s(&c->vis[1])))) {
+        c->reason = PPC_INR_ONE_WAY; /* a receive gap over half a window */
     } else if (metric == PPC_INM_DNS_TIME && (c->n[0] < PPC_IN_MIN_PAIRS || c->n[1] < PPC_IN_MIN_PAIRS)) {
         c->reason = PPC_INR_TOO_FEW;
     } else if (metric == PPC_INM_DNS_ANSWERED && (c->n[0] < PPC_IN_MIN_QUESTIONS || c->n[1] < PPC_IN_MIN_QUESTIONS)) {
@@ -1121,14 +1348,28 @@ static void compute(const struct ppc_intel *in, const struct ppc_in_mark *m, uns
     } else if (metric == PPC_INM_DNS_TIME) {
         decide_time(c, q);
     } else if (metric == PPC_INM_DNS_ANSWERED) {
-        decide_share(c, -1, f);
-    } else if (metric == PPC_INM_DNS_FAILED) {
-        /* uniform loss leaves the failure share of the answers seen as it was */
-        const double none[2][2] = { { 0.0, 0.0 }, { 0.0, 0.0 } };
+        const uint32_t und[2] = { q[0].undecided, q[1].undecided };
 
-        decide_share(c, +1, none);
+        decide_share(c, -1, f, und);
+    } else if (metric == PPC_INM_DNS_FAILED) {
+        /* uniform loss leaves the failure share of the answers seen as it
+         * was; the answers not seen are counted against "fewer" and "no change" */
+        const double none[2][2] = { { 0.0, 0.0 }, { 0.0, 0.0 } };
+        const uint32_t unseen[2] = { q[0].decided - q[0].answered + q[0].undecided,
+                                     q[1].decided - q[1].answered + q[1].undecided };
+
+        decide_share(c, +1, none, unseen);
     } else {
-        decide_rate(c, f);
+        unsigned which = metric == PPC_INM_ARP_REQUEST;
+        double lost[2];
+
+        for (i = 0; i < 2; i++) {
+            double own = stream_lost(in, w[i][0], w[i][1], which, c->vis[i].loss_known);
+            double share = f[i][1] >= 1.0 ? INFINITY : c->k[i] * f[i][1] / (1.0 - f[i][1]);
+
+            lost[i] = own > share ? own : share;
+        }
+        decide_rate(c, f, lost);
     }
     c->quality = c->verdict == PPC_INV_CANT_TELL                                              ? PPC_INQ_INSUFFICIENT
                  : (c->notes & (PPC_INN_UNWATCHED | PPC_INN_LOSS | PPC_INN_UNDECIDED)) != 0u ? PPC_INQ_DEGRADED
