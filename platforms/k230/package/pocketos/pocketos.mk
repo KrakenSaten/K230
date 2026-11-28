@@ -76,6 +76,13 @@ POCKETOS_INSTALL_TARGET = YES
 # (BR2_PACKAGE_OPENCV4_WITH_FFMPEG selects it; LGPL-2.1+, the build has
 # --disable-gpl), so this adds a build
 # dependency, not a package.
+# pos-capture leaves root for this unprivileged identity once its capture is
+# open and before it reads a frame (ADR-016 rule 17, amendment 2). The id is
+# fixed because the helper uses it numerically and reads no account database.
+define POCKETOS_USERS
+	pos-capture 65532 pos-capture 65532 * - - - Doors packet capture helper
+endef
+
 # libpcap: pos-capture, PacketShark's capture helper (docs/apps/PACKETSHARK.md,
 # ADR-016 accepted), captures live interfaces with it (PACKETSHARK_PCAP=1);
 # the dependency was approved by the owner on 2026-11-16.

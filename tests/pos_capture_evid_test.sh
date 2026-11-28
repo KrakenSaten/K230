@@ -45,6 +45,7 @@ check() { if [ "$2" = "1" ]; then echo "ok   $1"; else echo "FAIL $1"; failed=$(
 T=$(mktemp -d)
 trap 'rm -rf "$T"' EXIT
 export POCKETOS_RUNTIME_DIR="$T/run" POCKETOS_LOG_DIR="$T/log" POCKETOS_LOG_STDERR=0
+export POCKETOS_CAPTURES_DIR="$T/captures-none" # under /tmp: refused, nothing made (F1 hardening)
 unset POCKETOS_CAPTURE_SOURCE POCKETOS_CAPTURE_SELF_MAC
 mkdir -p "$T/run" "$T/log" "$T/fx"
 SELF=02:00:5e:00:00:10

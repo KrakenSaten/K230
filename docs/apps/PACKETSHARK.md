@@ -288,7 +288,64 @@ From the simulator (documentation addresses only): MARK on LIVE; the repeated-DI
 
 ## 5. Privilege
 
-All Doors processes run as root (docs/ARCHITECTURE.md). After its capture socket is open, the helper sets `no_new_privs`, clears the bounding set, empties its capability sets with `capset`, reads `/proc/self/status` back and reports what it found (`note caps ...`). A decoder fault can then still write files root owns, but cannot open sockets, change interfaces or load code into the kernel. On Unit A every capability set, the bounding set included, reads 0 with `NoNewPrivs: 1` while the capture runs (VERIFIED, §9.2). File capabilities, a dedicated user and seccomp are not available on the image or not checked (ADR-016).
+All Doors processes run as root (docs/ARCHITECTURE.md). The capture helper does not stay root: it applies **least privilege before it reads untrusted data** (ADR-016 rule 17, amendment 2, 2026-11-28; `tools/capture/capture_priv.c`).
+
+1. **When a session opens**, it closes every descriptor it inherited, so only stdin and stdout (the shell's socketpair) and stderr (`/dev/null`) remain. Then it opens its log.
+2. **At START, still as root**, it:
+   - takes its lock and opens the capture source;
+   - prepares its captures folder and keeps a descriptor to it. The folder is made 0700 if missing and refused if it is a link. An existing folder is handed to the capture identity only if it is already the identity's, or a root-owned `Captures` in a parent that only root can write. Any other folder a path names is refused and left as it is.
+3. **Before the first frame is read**, it:
+   - sets `no_new_privs` and clears the bounding set;
+   - gives itself a network namespace of its own: the capture socket it holds keeps working, and any socket made later reaches no network;
+   - leaves uid 0 for its own identity `pos-capture`, uid and gid 65532 with no supplementary groups (defined in the image, used numerically);
+   - empties every capability set and marks itself not dumpable.
+4. **It proves it.** It reads `/proc/self/status` back, checks that uid 0 cannot be taken back, and reports `note caps ...` and `note identity switched uid=65532 gid=65532 groups=0`. Any step that fails, or any check that does not read back as expected, **refuses the capture** (`error privilege`, logged without a packet). No frame is processed, and the helper ends at once, because a failed step may have left it partly privileged.
+5. **It sets its parent-death signal again**, which the identity change clears, so it still dies with the shell.
+6. **It installs its system call filter** (amendment 3), for the rest of its life, and proves it (`Seccomp: 2`, a refused `socket()`), reporting `note seccomp filter=2 receive-only=source`. From then on:
+   - the capture socket only receives: no write, `sendto`, bind, connect, socket option (no promiscuous membership, no new filter) or `ioctl` on it;
+   - no socket is made and no descriptor copied, and no program runs;
+   - any call outside the helper's few ends it at once (SIGSYS), which the app reports as `FILTERED (SIG 31)`, not as a crash.
+
+   After STOP the socket's number is kept taken, so a save never gets it. A failure refuses the capture as in step 4.
+
+The log keeps the descriptor opened in step 1 and is never rotated or reopened by the helper.
+
+**What this leaves a decoder fault.** It holds `pos-capture`, the descriptors already open (the capture socket, the lock, the log and the captures folder) and the filter's few calls.
+
+- *It still can:*
+  - receive on the capture socket and read its counters;
+  - write lines to the shell and to its log (it cannot truncate the log);
+  - create, write, rename or delete regular files in its folder, but not links or folders;
+  - read what any user may read.
+- *It cannot:*
+  - send a frame, rebind the socket, set it promiscuous or change its filter;
+  - make a socket, copy a descriptor, run a program or map executable memory;
+  - open root's files or device nodes, or write anywhere else;
+  - become root again.
+
+The image sets `fs.protected_hardlinks` and `fs.protected_symlinks` to 1 (`/etc/sysctl.d/60-doors-links.conf`). The app lists only single-name regular files in the folder (no links, no second names). A helper started without root (the host tests) has no identity to leave: it still drops what it holds, checks it and says so (`note identity unprivileged ...`).
+
+**SAVE** writes through the folder's descriptor (`openat`, `renameat`, `fstatvfs`), so it needs no path into `/root`. New captures belong to `pos-capture`, 0600, in its 0700 folder. Captures saved before amendment 2 keep their owner. The shell, which is root, lists and deletes all of them as before.
+
+**Verified.**
+
+- On Unit A, before amendment 2 (§9.2): every capability set, the bounding set included, read 0 with `NoNewPrivs: 1` while the capture ran (VERIFIED).
+- The identity change, VERIFIED on the host as root (`make packetshark-priv-test` under `wsl -u root`): uid and gid 65532, no groups, no capabilities, `no_new_privs`, not dumpable; its own network namespace; root's files and a root-owned 0660 device node refused; no raw socket; uid 0 refused; no inherited descriptor left, including one above 1023; SAVE into the prepared folder; a folder that is not a `Captures` folder refused; the helper dying with its parent; a forced failure refusing the capture and ending the helper.
+- A live capture on the host's `eth0` with a libpcap build (`POS_CAPTURE_PRIV_LIVE=eth0`): frames read after the change, promiscuous mode never set, the capture saved as `pos-capture`. Under the filter: `Seccomp: 2`, and the drop counters still read (the evidence knows its losses).
+- The filter, VERIFIED on the host as root and without (`tests/capture_priv_test.c`): on a real AF_PACKET socket, sending, binding, connecting, promiscuous membership, filter changes and `ioctl` are refused; so are new sockets, `sendmsg`, descriptor copies and executable memory. `prctl`, `execve`, `ptrace`, `kill` and the x32 ABI end the process with SIGSYS. Every PacketShark helper test runs under it. The riscv64 build's call numbers match the target glibc (VERIFIED by disassembly).
+- **On Unit A (28 November 2026)**, VERIFIED, with the build installed for the run and then restored exactly:
+  - The filter test on the image's kernel: refused calls are refused, other calls end the process, and the kernel logs each kill.
+  - Ethernet and Wi-Fi with a physical START: `/proc` shows uid and gid 65532, no capabilities, `Seccomp: 2` and a network namespace of its own. Promiscuous mode is never set, and the drop counters read.
+  - MARK, its evidence, HOLD, RESUME, STOP (also through the Companion methods), SAVE as the identity's 0600, and an earlier root capture left as it was. Leaving the app leaves no helper.
+  - The link settings apply through `S02sysctl`.
+  - Not verified on the unit: deleting a saved capture from the app (host-tested).
+
+**Release checklist (next image build).** Amendments 2 and 3 were validated with the helper and the shell installed on a 0.5.0 image. The next release build must also:
+
+1. carry `/etc/sysctl.d/60-doors-links.conf` and the `pos-capture` account (65532, `POCKETOS_USERS` in the `pocketos` package). The helper uses the number, so it works without the account;
+2. on the release candidate, with a physical START: confirm that a capture saved as `pos-capture`, and one saved before amendment 2 (root's), are listed, open nothing, and can be deleted from the app;
+3. read `fs.protected_hardlinks` and `fs.protected_symlinks` as 1 after a cold boot;
+4. confirm that a capture ended by unplugging the cable reports the link loss, not `FILTERED`.
 
 Promiscuous mode is not offered in this version. The helper accepts the flag (libpcap sets it by socket membership, which the kernel reverts when the socket closes, DOCUMENTED, packet(7)), but the app shows OFF and takes no tap on the row until the reversion is verified on the hardware.
 
@@ -718,7 +775,6 @@ Pull request #141 merged the four stacked branches (head `27115c45`) onto master
 - During HOLD the per-class rates read `0/s`: held packets are counted, not classified (DS §59.11).
 - The relative-time origin is corrected for clock steps; frames still in the kernel ring across a step can read time 0 (an edge, not measured).
 - GRO-merged records (r8152) are labelled `[GRO]`; whether they occur on the unit is measured in the line-rate gate.
-- No seccomp; no dedicated user (ADR-016).
 - A full repaint of a following list is the costliest frame the app draws (about 28 ms on Unit B); a following list repaints twice a second.
 - The display filter has one protocol class at a time in the sheet (the protocol carries a mask); a host or port comes from FILTER BY or an end's slab, never typed.
 - A MAC filters only ARP and frames with no network layer: an IP packet's record keeps its IP addresses, not its MACs, so its Ethernet addresses offer no FILTER BY. An ARP record keeps the sender and target MAC of the ARP message, so an ARP frame's Ethernet address offers FILTER BY only when it is one of them: the broadcast destination of a request (`ff:ff:ff:ff:ff:ff`) offers none (before this fix it offered one that listed nothing).

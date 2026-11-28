@@ -309,7 +309,9 @@ static void test_findings_and_save(void)
     if (system(cmd) != 0) {
         printf("note: could not remove %s\n", caps);
     }
-    unsetenv("POCKETOS_CAPTURES_DIR");
+    /* A capture prepares its folder at START (F1 hardening): leave a refused
+     * /tmp path, not the home folder, for the sessions after this one. */
+    setenv("POCKETOS_CAPTURES_DIR", "/tmp/psk-session-captures-none", 1);
 }
 
 static void test_replay_and_lock(const char *pcap)

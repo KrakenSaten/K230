@@ -54,6 +54,7 @@
 #include "pocketpcap/ppc_stats.h"
 #include "pocketpcap/ppc_store.h"
 #include "pocketpcap/ppc_view.h"
+#include "capture_priv.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -174,8 +175,11 @@ struct helper {
     /* SAVE (M8): one file, written a batch a turn so the helper keeps answering */
     int save_fd;              /* -1: none being written */
     char save_name[PPC_SAVE_NAME];
-    char save_part[POCKETOS_PATH_MAX];
-    char save_path[POCKETOS_PATH_MAX];
+    char save_part[PPC_SAVE_NAME + 8]; /* names inside the captures folder (cap_dirfd) */
+    char save_path[PPC_SAVE_NAME + 8];
+    int cap_dirfd;            /* the captures folder, opened before the privilege drop; -1: none */
+    int conf_fd;              /* the source descriptor the system call filter keeps receive-only; -1: none */
+    pid_t parent;             /* the shell that started this helper */
     uint32_t save_next;       /* the next seq to write */
     uint32_t save_last;
     uint32_t save_done;
@@ -357,70 +361,49 @@ static void emit_bin(void *ctx, uint64_t second, const uint32_t cls[PPC_CLASS_CO
 
 /* ---- privilege ----------------------------------------------------------------------- */
 
-/* The effective and permitted capability sets from /proc/self/status. */
-static int caps_now(unsigned long long *eff, unsigned long long *prm, unsigned long long *bnd)
+/* After the capture is open and before a frame is read (ADR-016 rule 17,
+ * amended): leave root for the capture identity, empty every capability
+ * set, set no_new_privs, and prove it (capture_priv.c). The open socket
+ * keeps working: capabilities and identity are checked when a socket is
+ * made, not when it is read. Changing the identity clears the parent-death
+ * signal, so it is set again here: the helper still dies with the shell.
+ * Last, the system call filter (amendment 3): from here on the capture
+ * socket only receives, and nothing outside the helper's few calls runs.
+ * 0, or -1 with why: the caller refuses the capture (fail closed). */
+static int drop_privileges(struct helper *h, char *why, size_t whylen)
 {
-    FILE *f = fopen("/proc/self/status", "re");
-    char line[128];
-    int got = 0;
+    struct capture_priv p;
+    char note[96];
+    int sfd = h->src.ops->fd ? h->src.ops->fd(&h->src) : -1;
 
-    if (!f) {
+    pocketlog_keep(); /* the log's descriptor stays; it is never reopened or rotated */
+    if (capture_drop(&p) != 0) {
+        snprintf(why, whylen, "%s", p.why);
+        LOG_ERROR("capture: privilege reduction failed (%s): capture refused", p.why);
         return -1;
     }
-    while (fgets(line, sizeof(line), f)) {
-        if (sscanf(line, "CapEff: %llx", eff) == 1 || sscanf(line, "CapPrm: %llx", prm) == 1 ||
-            sscanf(line, "CapBnd: %llx", bnd) == 1) {
-            got++;
-        }
+    prctl(PR_SET_PDEATHSIG, SIGTERM, 0, 0, 0);
+    if (getppid() != h->parent) {
+        snprintf(why, whylen, "the shell went away");
+        return -1;
     }
-    fclose(f);
-    return got == 3 ? 0 : -1;
-}
-
-/* After the capture is open (ADR-016 rule 17): no new privileges, the
- * bounding set cleared, and every capability set emptied. The open socket
- * keeps working: capabilities are checked when a socket is made, not when
- * it is read. Whether this works on the unit's kernel is checked, not
- * assumed: the outcome is read back from /proc and reported as a note. */
-static void drop_privileges(struct helper *h)
-{
-    struct __user_cap_header_struct hdr;
-    struct __user_cap_data_struct data[2];
-    unsigned long long eff = ~0ull;
-    unsigned long long prm = ~0ull;
-    unsigned long long bnd = ~0ull;
-    int bounding_ok = 1;
-    int cap;
-    char note[64];
-
-    if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) {
-        LOG_WARN("capture: no_new_privs refused: %s", strerror(errno));
+    if (capture_confine(sfd, &p) != 0) {
+        snprintf(why, whylen, "%s", p.why);
+        LOG_ERROR("capture: system call filter failed (%s): capture refused", p.why);
+        return -1;
     }
-    for (cap = 0; cap < 64; cap++) {
-        if (prctl(PR_CAPBSET_DROP, cap, 0, 0, 0) != 0) {
-            if (errno == EINVAL) {
-                break; /* past the kernel's last capability */
-            }
-            bounding_ok = 0; /* EPERM: not root, nothing in it to lose */
-        }
-    }
-    memset(&hdr, 0, sizeof(hdr));
-    memset(data, 0, sizeof(data));
-    hdr.version = _LINUX_CAPABILITY_VERSION_3;
-    hdr.pid = 0;
-    if (syscall(SYS_capset, &hdr, data) != 0) {
-        LOG_WARN("capture: capset refused: %s", strerror(errno));
-    }
-    if (caps_now(&eff, &prm, &bnd) != 0) {
-        snprintf(note, sizeof(note), "unknown");
-    } else if (eff == 0 && prm == 0) {
-        snprintf(note, sizeof(note), "dropped bnd=%s", bnd == 0 ? "empty" : "kept");
-    } else {
-        snprintf(note, sizeof(note), "kept eff=%llx", eff);
-    }
-    (void)bounding_ok;
+    h->conf_fd = sfd;
+    snprintf(note, sizeof(note), "dropped bnd=%s", p.cap_bnd == 0 ? "empty" : "kept");
     LOG_INFO("capture: capabilities %s", note);
     say_note(h, "caps", note);
+    snprintf(note, sizeof(note), "%s uid=%u gid=%u groups=%d%s", p.was_root ? "switched" : "unprivileged",
+             (unsigned)p.euid, (unsigned)p.egid, p.ngroups, p.was_root ? " netns=own" : "");
+    LOG_INFO("capture: identity %s", note);
+    say_note(h, "identity", note);
+    snprintf(note, sizeof(note), "filter=%d receive-only=%s", p.seccomp_mode, sfd >= 0 ? "source" : "none");
+    LOG_INFO("capture: seccomp %s", note);
+    say_note(h, "seccomp", note);
+    return 0;
 }
 
 /* ---- the lock ------------------------------------------------------------------------ */
@@ -767,6 +750,11 @@ static void stop_capture(struct helper *h, enum ppc_reason why, const char *deta
         }
         ppc_source_close(&h->src);
         h->src_open = 0;
+        /* The filter refuses writes to the socket's number for good: keep
+         * the number taken, so the save does not get it. */
+        if (capture_reserve_fd(h->conf_fd) != 0) {
+            LOG_WARN("capture: the source's descriptor number could not be held");
+        }
     }
     release_lock(h);
     if (h->state != PPC_STATE_STOPPED && h->state != PPC_STATE_IDLE) {
@@ -836,11 +824,43 @@ static void ingest(struct helper *h)
     }
 }
 
+/* Give back what a refused start had taken: tables, the source, the lock. */
+static void start_undo(struct helper *h)
+{
+    if (h->src_open) {
+        ppc_source_close(&h->src);
+        h->src_open = 0;
+    }
+    if (h->cap_dirfd >= 0) {
+        close(h->cap_dirfd);
+        h->cap_dirfd = -1;
+    }
+    ppc_view_free(&h->view);
+    h->view_ready = 0;
+    if (h->sig_ready) {
+        ppc_signals_free(&h->sig);
+        h->sig_ready = 0;
+    }
+    if (h->net_ready) {
+        ppc_net_free(&h->net);
+        h->net_ready = 0;
+    }
+    if (h->ev_ready) {
+        ppc_evid_free(&h->ev);
+        h->ev_ready = 0;
+    }
+    ppc_store_free(&h->store);
+    h->store_ready = 0;
+    release_lock(h);
+}
+
 static void cmd_start(struct helper *h, const struct ppc_cmd *c)
 {
     struct ppc_open_opts o;
     enum ppc_open_err e;
     const char *spec;
+    char dirbuf[POCKETOS_PATH_MAX];
+    char why[96];
 
     if (h->used) {
         say_error(h, "state", "this helper has captured once; a new capture is a new helper");
@@ -884,6 +904,11 @@ static void cmd_start(struct helper *h, const struct ppc_cmd *c)
         }
     }
     {
+        const char *drop = getenv("POS_CAPTURE_TEST_DROP_FAIL");
+
+        capture_priv_test_fail(drop && (*drop == '1' || *drop == '2') ? *drop - '0' : 0);
+    }
+    {
         const char *no = getenv("POS_CAPTURE_TEST_NO_ANALYZER");
 
         if (no && strstr(no, "dns") && h->sig_ready) {
@@ -911,34 +936,29 @@ static void cmd_start(struct helper *h, const struct ppc_cmd *c)
     if (e != PPC_OPEN_OK) {
         LOG_WARN("capture: could not open the source (%s)", ppc_open_err_code(e));
         say_error(h, ppc_open_err_code(e), h->src.err);
-        ppc_view_free(&h->view);
-        h->view_ready = 0;
-        if (h->sig_ready) {
-            ppc_signals_free(&h->sig);
-            h->sig_ready = 0;
-        }
-        if (h->net_ready) {
-            ppc_net_free(&h->net);
-            h->net_ready = 0;
-        }
-        if (h->ev_ready) {
-            ppc_evid_free(&h->ev);
-            h->ev_ready = 0;
-        }
-        ppc_store_free(&h->store);
-        h->store_ready = 0;
-        release_lock(h);
+        start_undo(h);
         return;
     }
     h->src_open = 1;
     h->used = 1;
+    /* The captures folder, while the helper may still reach it: SAVE writes
+     * through this descriptor after the drop (ADR-016 rule 9, amended). */
+    h->cap_dirfd = capture_captures_dir(ppc_captures_dir(dirbuf, sizeof(dirbuf)));
+    /* Least privilege before the first frame is read; fail closed. A
+     * failed reduction may have left this process partly privileged, so it
+     * says why and ends: the next START is a new helper. */
+    if (drop_privileges(h, why, sizeof(why)) != 0) {
+        start_undo(h);
+        say_error(h, "privilege", why);
+        out_flush(h);
+        _exit(3);
+    }
     if (h->ev_ready) {
         /* What the evidence can observe: the capture filter only a live
          * source applies, and the analyses that could not start. */
         ppc_evid_coverage(&h->ev, h->src.live ? c->cfilter : PPC_CFILTER_ALL,
                           ppc_evid_unanalyzed(h->sig_ready, h->net_ready));
     }
-    drop_privileges(h);
     snprintf(h->iface, sizeof(h->iface), "%s", c->iface);
     h->speed = h->src.live ? link_speed(c->iface) : 0;
     h->keep = (enum ppc_keep)c->keep;
@@ -1797,7 +1817,7 @@ static void save_abort(struct helper *h, const char *code)
     if (h->save_fd >= 0) {
         close(h->save_fd);
         h->save_fd = -1;
-        unlink(h->save_part);
+        unlinkat(h->cap_dirfd, h->save_part, 0);
     }
     if (code) {
         LOG_WARN("capture: save failed (%s)", code);
@@ -1811,8 +1831,9 @@ static void save_abort(struct helper *h, const char *code)
     }
 }
 
-/* A name no file has: the UTC time when the clock is set, else a number. */
-static int save_pick_name(struct helper *h, const char *dir)
+/* A name no file has: the UTC time when the clock is set, else a number.
+ * Names only: the folder is the descriptor opened before the drop. */
+static int save_pick_name(struct helper *h)
 {
     char stem[32];
     struct stat sb;
@@ -1836,12 +1857,11 @@ static int save_pick_name(struct helper *h, const char *dir)
         } else {
             snprintf(h->save_name, sizeof(h->save_name), "%s-%04d.pcap", stem, i);
         }
-        if (snprintf(h->save_path, sizeof(h->save_path), "%s/%s", dir, h->save_name) >= (int)sizeof(h->save_path) ||
-            snprintf(h->save_part, sizeof(h->save_part), "%s/.%s.part", dir, h->save_name) >=
-                (int)sizeof(h->save_part)) {
+        if (snprintf(h->save_path, sizeof(h->save_path), "%s", h->save_name) >= (int)sizeof(h->save_path) ||
+            snprintf(h->save_part, sizeof(h->save_part), ".%s.part", h->save_name) >= (int)sizeof(h->save_part)) {
             return -1;
         }
-        if (lstat(h->save_path, &sb) != 0 && errno == ENOENT) {
+        if (fstatat(h->cap_dirfd, h->save_path, &sb, AT_SYMLINK_NOFOLLOW) != 0 && errno == ENOENT) {
             return ppc_save_name_ok(h->save_name) ? 0 : -1;
         }
     }
@@ -1853,8 +1873,6 @@ static int save_pick_name(struct helper *h, const char *dir)
  * another name and renamed when whole, never over a file that is there. */
 static void cmd_save(struct helper *h)
 {
-    char dirbuf[POCKETOS_PATH_MAX];
-    const char *dir = ppc_captures_dir(dirbuf, sizeof(dirbuf));
     struct statvfs vfs;
     uint64_t need = PPC_PCAP_HEADER_LEN;
     uint32_t seq;
@@ -1879,20 +1897,20 @@ static void cmd_save(struct helper *h)
         say_saved(h, PPC_SAVE_FAIL, "empty", 0);
         return;
     }
-    if (!dir || pocketos_mkdir_p(dir, 0700) != 0) {
+    if (h->cap_dirfd < 0) {
         LOG_WARN("capture: the captures folder cannot be used");
         say_saved(h, PPC_SAVE_FAIL, "nodir", 0);
         return;
     }
-    if (statvfs(dir, &vfs) == 0 && (uint64_t)vfs.f_bavail * vfs.f_frsize < need + SAVE_MARGIN) {
+    if (fstatvfs(h->cap_dirfd, &vfs) == 0 && (uint64_t)vfs.f_bavail * vfs.f_frsize < need + SAVE_MARGIN) {
         say_saved(h, PPC_SAVE_FAIL, "nospace", 0);
         return;
     }
-    if (save_pick_name(h, dir) != 0) {
+    if (save_pick_name(h) != 0) {
         say_saved(h, PPC_SAVE_FAIL, "name", 0);
         return;
     }
-    h->save_fd = open(h->save_part, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0600);
+    h->save_fd = openat(h->cap_dirfd, h->save_part, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0600);
     if (h->save_fd < 0 || ppc_pcap_write_header(h->save_fd, SAVE_SNAPLEN) != 0) {
         save_abort(h, "io");
         return;
@@ -1937,13 +1955,13 @@ static void save_step(struct helper *h)
     }
     if (fsync(h->save_fd) != 0 || close(h->save_fd) != 0) {
         h->save_fd = -1;
-        unlink(h->save_part);
+        unlinkat(h->cap_dirfd, h->save_part, 0);
         save_abort(h, "io");
         return;
     }
     h->save_fd = -1;
-    if (rename(h->save_part, h->save_path) != 0) {
-        unlink(h->save_part);
+    if (renameat(h->cap_dirfd, h->save_part, h->cap_dirfd, h->save_path) != 0) {
+        unlinkat(h->cap_dirfd, h->save_part, 0);
         save_abort(h, "io");
         return;
     }
@@ -2444,6 +2462,9 @@ static int run_session(const char *source_spec)
     h.pend_f.classes = PPC_CLASSES_ALL;
     h.lock_fd = -1;
     h.save_fd = -1;
+    h.cap_dirfd = -1;
+    h.conf_fd = -1;
+    h.parent = getppid();
     h.out_socket = 1;
     h.in_socket = 1;
     memset(&sa, 0, sizeof(sa));
@@ -2811,6 +2832,27 @@ static int usage(void)
     return 2;
 }
 
+/* Every descriptor above stderr, however high: close_range where the
+ * kernel has it (5.9), else every number up to the descriptor limit. */
+static void close_inherited(void)
+{
+    long max;
+    long fd;
+
+#ifdef SYS_close_range
+    if (syscall(SYS_close_range, 3u, ~0u, 0u) == 0) {
+        return;
+    }
+#endif
+    max = sysconf(_SC_OPEN_MAX);
+    if (max < 1024 || max > 1048576) {
+        max = max < 1024 ? 1024 : 1048576;
+    }
+    for (fd = 3; fd < max; fd++) {
+        close((int)fd);
+    }
+}
+
 int main(int argc, char **argv)
 {
     if (argc < 2) {
@@ -2850,6 +2892,10 @@ int main(int argc, char **argv)
         } else if (argc != 2) {
             return usage();
         }
+        /* Nothing inherited reaches a capture: the session keeps stdin,
+         * stdout and stderr (the shell's socketpair and /dev/null) and
+         * closes every other descriptor before it opens its own. */
+        close_inherited();
         pocketlog_init("pos-capture");
         return run_session(spec);
     }

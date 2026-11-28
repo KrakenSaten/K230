@@ -48,8 +48,11 @@ int psk_saves_list(struct psk_saved *out, int max, uint32_t *count, uint64_t *by
         int i;
 
         scanned++;
+        /* Only the helper's own files: a regular file, not a link to one, and
+         * not a second name of a file elsewhere (st_nlink 1). The capture
+         * identity owns the folder and could plant either (ADR-016 rule 9). */
         if (!ppc_save_name_ok(e->d_name) || fstatat(dirfd(d), e->d_name, &sb, AT_SYMLINK_NOFOLLOW) != 0 ||
-            !S_ISREG(sb.st_mode)) {
+            !S_ISREG(sb.st_mode) || sb.st_nlink != 1) {
             continue;
         }
         total++;

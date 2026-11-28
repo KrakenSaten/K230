@@ -24,6 +24,7 @@ static char log_name[32] = "unknown";
 static char log_dir[256] = POCKETLOG_DEFAULT_DIR;
 static char log_path[512];
 static int log_fd = -1;
+static int log_kept; /* pocketlog_keep(): the descriptor is never reopened */
 static enum pocketlog_level log_level = POCKETLOG_INFO;
 static int log_stderr = 1;
 static const char *level_names[] = { "DEBUG", "INFO ", "WARN ", "ERROR" };
@@ -74,6 +75,11 @@ static void open_log_file(void)
     log_fd = open(log_path, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0644);
 }
 
+void pocketlog_keep(void)
+{
+    log_kept = 1;
+}
+
 void pocketlog_init(const char *name)
 {
     const char *dir = pocketos_log_dir();
@@ -122,7 +128,7 @@ static void rotate_if_needed(void)
 {
     struct stat st;
 
-    if (log_fd < 0 || fstat(log_fd, &st) < 0 || st.st_size < (off_t)POCKETLOG_MAX_BYTES) {
+    if (log_kept || log_fd < 0 || fstat(log_fd, &st) < 0 || st.st_size < (off_t)POCKETLOG_MAX_BYTES) {
         return;
     }
     {

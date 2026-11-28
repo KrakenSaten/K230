@@ -35,6 +35,10 @@ check() { if [ "$2" = "1" ]; then echo "ok   $1"; else echo "FAIL $1"; failed=$(
 T=$(mktemp -d)
 trap 'rm -rf "$T"' EXIT
 export POCKETOS_RUNTIME_DIR="$T/run" POCKETOS_LOG_DIR="$T/log" POCKETOS_LOG_STDERR=0
+# Since F1 hardening a capture prepares its captures folder at START, while
+# it may still reach it. Under /tmp that is refused, so sessions that do not
+# save leave nothing, and none touches the home folder of whoever runs this.
+export POCKETOS_CAPTURES_DIR="$T/captures-none"
 unset POCKETOS_CAPTURE_SOURCE
 mkdir -p "$T/run" "$T/log" "$T/fx"
 
