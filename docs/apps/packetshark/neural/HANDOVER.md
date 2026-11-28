@@ -67,7 +67,13 @@ The owner adopted the review's order on 27 November 2026 (INDEPENDENT-REVIEW §9
 3. Run the amended P7 session on Unit B (INDEPENDENT-REVIEW §7; kit and base recipe in `poc/K1-UNIT-A.md` §8 on the research branch).
 4. Host: redo E3a with a noisy, lagged coverage signal, faults inside gaps and 10 seeds. Until then no document cites the gate figures. **Done on 27 November 2026 (E3a-R, [N1.1.md](N1.1.md) §3), synthetic only.**
 5. Host: the CESNET study for Traffic DNA, with the ensemble open-set protocol (the download needs the owner's approval under D6).
-6. Build the rest of N1 beyond N1.0: the engine, the ledger, the loss-aware gate, the before/after statistics, laps and the INSIGHT face, with fixtures before code. **N1.1 (host only, 27–28 November 2026):** the fixtures and the engine core; **G0 passed** on its third held-out validation ([G0.md](G0.md) §8). **N1.2 (PR #196):** a controlled bench on real protocol exchanges, then the helper hook, protocol 7 and the INSIGHT/WHEN face, observation-only first.
+6. Build the rest of N1 beyond N1.0: the engine, the ledger, the loss-aware gate, the before/after statistics, laps and the INSIGHT face, with fixtures before code. **N1.1 (host only, 27–28 November 2026):** the fixtures and the engine core; **G0 passed** on its third held-out validation ([G0.md](G0.md) §8). **N1.2 (PR #196, 28 November 2026, host only, [N1.2.md](N1.2.md)):**
+   - a controlled bench on real protocol exchanges: 63 sessions, material faults 20 of 20, no false claim outside the asymmetric-return sessions;
+   - finding **E2**: answers returning by another path read as fewer answers, 4 of 4 — a fundamental limit for verdicts on DNS answers;
+   - the engine linked into `pos-capture`, protocol 7, and WHEN on a mark's page, observation-only, with automatic verdicts off;
+   - replay parity 40 of 40.
+
+   Next: G1 and live WHEN on a unit; E2's return-path check and E1's reason fix in a new engine freeze; field evidence (G3/G6) before any verdict.
 7. Add the CPU scorer backend and its contract.
 8. Revisit the KPU only under G4-N. K2 as specified stays NO-GO.
 

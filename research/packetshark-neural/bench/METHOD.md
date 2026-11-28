@@ -99,3 +99,7 @@ Frozen at the commit that adds this section, before any scored session ran. The 
 | `run_all.py` | `c9de53582c1c…` |
 
 The engine under test is the third freeze (`G0.md` §8.5). The helper is `pos-capture` built with libpcap from the same commit.
+
+## 6. The run (added after it; the method above is unchanged)
+
+Run once on 28 November 2026, 15:59–16:37: 63 sessions, all saved, evaluated once with the frozen files (hashes checked before evaluating). Results: `results/bench_results.json`. Report and findings: `docs/apps/packetshark/neural/N1.2.md` §2–3. Replay parity, a separate check after the run that is not part of this method: `parity.py`, `results/parity.json`.

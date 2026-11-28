@@ -1,0 +1,7590 @@
+{
+ "sessions": 63,
+ "errors": [],
+ "rows": [
+  {
+   "id": "s01",
+   "spec": {
+    "id": "s01",
+    "kind": "clean-periodic",
+    "fault": null,
+    "metric": null,
+    "onset": 60.0,
+    "art": null,
+    "art_base": null,
+    "dns_rate": 1.0,
+    "busy": 0,
+    "arp_bursty": 1,
+    "events": []
+   },
+   "truth": {
+    "arp": [
+     93,
+     87
+    ],
+    "discover_per_s": [
+     0.16666666666666666,
+     0.11666666666666667
+    ],
+    "dns_base": {
+     "questions": 66,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 19.0
+    },
+    "dns_win": {
+     "questions": 50,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 21.0
+    }
+   },
+   "worsened": [],
+   "changed": [],
+   "verdicts": {
+    "dns.time": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dns.answered": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      66,
+      50
+     ]
+    },
+    "dns.failed": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dhcp.discover": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      7
+     ]
+    },
+    "arp.request": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      99,
+      91
+     ]
+    }
+   }
+  },
+  {
+   "id": "s02",
+   "spec": {
+    "id": "s02",
+    "kind": "clean-periodic",
+    "fault": null,
+    "metric": null,
+    "onset": 60.0,
+    "art": null,
+    "art_base": null,
+    "dns_rate": 1.0,
+    "busy": 0,
+    "arp_bursty": 1,
+    "events": []
+   },
+   "truth": {
+    "arp": [
+     93,
+     87
+    ],
+    "discover_per_s": [
+     0.16666666666666666,
+     0.11666666666666667
+    ],
+    "dns_base": {
+     "questions": 66,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 19.0
+    },
+    "dns_win": {
+     "questions": 50,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 21.0
+    }
+   },
+   "worsened": [],
+   "changed": [],
+   "verdicts": {
+    "dns.time": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dns.answered": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      66,
+      50
+     ]
+    },
+    "dns.failed": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dhcp.discover": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      7
+     ]
+    },
+    "arp.request": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      99,
+      93
+     ]
+    }
+   }
+  },
+  {
+   "id": "s03",
+   "spec": {
+    "id": "s03",
+    "kind": "clean-periodic",
+    "fault": null,
+    "metric": null,
+    "onset": 60.0,
+    "art": null,
+    "art_base": null,
+    "dns_rate": 1.0,
+    "busy": 0,
+    "arp_bursty": 1,
+    "events": []
+   },
+   "truth": {
+    "arp": [
+     93,
+     87
+    ],
+    "discover_per_s": [
+     0.16666666666666666,
+     0.11666666666666667
+    ],
+    "dns_base": {
+     "questions": 66,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 19.0
+    },
+    "dns_win": {
+     "questions": 50,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 21.0
+    }
+   },
+   "worsened": [],
+   "changed": [],
+   "verdicts": {
+    "dns.time": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dns.answered": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      66,
+      50
+     ]
+    },
+    "dns.failed": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dhcp.discover": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      7
+     ]
+    },
+    "arp.request": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      101,
+      95
+     ]
+    }
+   }
+  },
+  {
+   "id": "s04",
+   "spec": {
+    "id": "s04",
+    "kind": "clean-periodic",
+    "fault": null,
+    "metric": null,
+    "onset": 60.0,
+    "art": null,
+    "art_base": null,
+    "dns_rate": 1.0,
+    "busy": 0,
+    "arp_bursty": 1,
+    "events": []
+   },
+   "truth": {
+    "arp": [
+     93,
+     87
+    ],
+    "discover_per_s": [
+     0.16666666666666666,
+     0.11666666666666667
+    ],
+    "dns_base": {
+     "questions": 66,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 19.0
+    },
+    "dns_win": {
+     "questions": 50,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 21.0
+    }
+   },
+   "worsened": [],
+   "changed": [],
+   "verdicts": {
+    "dns.time": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dns.answered": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      66,
+      50
+     ]
+    },
+    "dns.failed": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dhcp.discover": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      7
+     ]
+    },
+    "arp.request": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      101,
+      94
+     ]
+    }
+   }
+  },
+  {
+   "id": "s05",
+   "spec": {
+    "id": "s05",
+    "kind": "clean-busy",
+    "fault": null,
+    "metric": null,
+    "onset": 60.0,
+    "art": null,
+    "art_base": null,
+    "dns_rate": 1.0,
+    "busy": 1,
+    "arp_bursty": 1,
+    "events": []
+   },
+   "truth": {
+    "arp": [
+     93,
+     87
+    ],
+    "discover_per_s": [
+     0.16666666666666666,
+     0.11666666666666667
+    ],
+    "dns_base": {
+     "questions": 66,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 19.0
+    },
+    "dns_win": {
+     "questions": 50,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 21.0
+    }
+   },
+   "worsened": [],
+   "changed": [],
+   "verdicts": {
+    "dns.time": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dns.answered": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      66,
+      50
+     ]
+    },
+    "dns.failed": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dhcp.discover": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      7
+     ]
+    },
+    "arp.request": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      106,
+      94
+     ]
+    }
+   }
+  },
+  {
+   "id": "s06",
+   "spec": {
+    "id": "s06",
+    "kind": "clean-busy",
+    "fault": null,
+    "metric": null,
+    "onset": 60.0,
+    "art": null,
+    "art_base": null,
+    "dns_rate": 1.0,
+    "busy": 1,
+    "arp_bursty": 1,
+    "events": []
+   },
+   "truth": {
+    "arp": [
+     93,
+     87
+    ],
+    "discover_per_s": [
+     0.16666666666666666,
+     0.11666666666666667
+    ],
+    "dns_base": {
+     "questions": 66,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 19.0
+    },
+    "dns_win": {
+     "questions": 50,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 21.0
+    }
+   },
+   "worsened": [],
+   "changed": [],
+   "verdicts": {
+    "dns.time": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dns.answered": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      66,
+      50
+     ]
+    },
+    "dns.failed": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dhcp.discover": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      7
+     ]
+    },
+    "arp.request": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      105,
+      96
+     ]
+    }
+   }
+  },
+  {
+   "id": "s07",
+   "spec": {
+    "id": "s07",
+    "kind": "clean-busy",
+    "fault": null,
+    "metric": null,
+    "onset": 60.0,
+    "art": null,
+    "art_base": null,
+    "dns_rate": 1.0,
+    "busy": 1,
+    "arp_bursty": 1,
+    "events": []
+   },
+   "truth": {
+    "arp": [
+     93,
+     87
+    ],
+    "discover_per_s": [
+     0.16666666666666666,
+     0.11666666666666667
+    ],
+    "dns_base": {
+     "questions": 66,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 19.0
+    },
+    "dns_win": {
+     "questions": 50,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 21.0
+    }
+   },
+   "worsened": [],
+   "changed": [],
+   "verdicts": {
+    "dns.time": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dns.answered": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      66,
+      50
+     ]
+    },
+    "dns.failed": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dhcp.discover": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      7
+     ]
+    },
+    "arp.request": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      102,
+      96
+     ]
+    }
+   }
+  },
+  {
+   "id": "s08",
+   "spec": {
+    "id": "s08",
+    "kind": "clean-busy",
+    "fault": null,
+    "metric": null,
+    "onset": 60.0,
+    "art": null,
+    "art_base": null,
+    "dns_rate": 1.0,
+    "busy": 1,
+    "arp_bursty": 1,
+    "events": []
+   },
+   "truth": {
+    "arp": [
+     93,
+     87
+    ],
+    "discover_per_s": [
+     0.16666666666666666,
+     0.11666666666666667
+    ],
+    "dns_base": {
+     "questions": 66,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 19.0
+    },
+    "dns_win": {
+     "questions": 50,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 21.0
+    }
+   },
+   "worsened": [],
+   "changed": [],
+   "verdicts": {
+    "dns.time": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dns.answered": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      66,
+      50
+     ]
+    },
+    "dns.failed": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dhcp.discover": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      7
+     ]
+    },
+    "arp.request": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      103,
+      97
+     ]
+    }
+   }
+  },
+  {
+   "id": "s09",
+   "spec": {
+    "id": "s09",
+    "kind": "clean-sparse-dns",
+    "fault": null,
+    "metric": null,
+    "onset": 60.0,
+    "art": null,
+    "art_base": null,
+    "dns_rate": 0.1,
+    "busy": 0,
+    "arp_bursty": 1,
+    "events": []
+   },
+   "truth": {
+    "arp": [
+     93,
+     87
+    ],
+    "discover_per_s": [
+     0.16666666666666666,
+     0.11666666666666667
+    ],
+    "dns_base": {
+     "questions": 7,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 14
+    },
+    "dns_win": {
+     "questions": 6,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 18.5
+    }
+   },
+   "worsened": [],
+   "changed": [],
+   "verdicts": {
+    "dns.time": {
+     "verdict": "cant-tell",
+     "reason": "weak",
+     "quality": "insufficient",
+     "n": [
+      7,
+      6
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dns.answered": {
+     "verdict": "cant-tell",
+     "reason": "weak",
+     "quality": "insufficient",
+     "n": [
+      7,
+      6
+     ],
+     "k": [
+      7,
+      6
+     ]
+    },
+    "dns.failed": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      7,
+      6
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dhcp.discover": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      7
+     ]
+    },
+    "arp.request": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      100,
+      92
+     ]
+    }
+   }
+  },
+  {
+   "id": "s10",
+   "spec": {
+    "id": "s10",
+    "kind": "clean-sparse-dns",
+    "fault": null,
+    "metric": null,
+    "onset": 60.0,
+    "art": null,
+    "art_base": null,
+    "dns_rate": 0.1,
+    "busy": 0,
+    "arp_bursty": 1,
+    "events": []
+   },
+   "truth": {
+    "arp": [
+     93,
+     87
+    ],
+    "discover_per_s": [
+     0.16666666666666666,
+     0.11666666666666667
+    ],
+    "dns_base": {
+     "questions": 7,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 14
+    },
+    "dns_win": {
+     "questions": 6,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 18.5
+    }
+   },
+   "worsened": [],
+   "changed": [],
+   "verdicts": {
+    "dns.time": {
+     "verdict": "cant-tell",
+     "reason": "weak",
+     "quality": "insufficient",
+     "n": [
+      7,
+      6
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dns.answered": {
+     "verdict": "cant-tell",
+     "reason": "weak",
+     "quality": "insufficient",
+     "n": [
+      7,
+      6
+     ],
+     "k": [
+      7,
+      6
+     ]
+    },
+    "dns.failed": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      7,
+      6
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dhcp.discover": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      7
+     ]
+    },
+    "arp.request": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      99,
+      92
+     ]
+    }
+   }
+  },
+  {
+   "id": "s11",
+   "spec": {
+    "id": "s11",
+    "kind": "loss",
+    "fault": null,
+    "metric": null,
+    "onset": 60.0,
+    "art": "loss",
+    "art_base": null,
+    "dns_rate": 1.0,
+    "busy": 1,
+    "arp_bursty": 1,
+    "events": [
+     [
+      86.4,
+      "pause",
+      3.6
+     ]
+    ]
+   },
+   "truth": {
+    "arp": [
+     93,
+     87
+    ],
+    "discover_per_s": [
+     0.16666666666666666,
+     0.11666666666666667
+    ],
+    "dns_base": {
+     "questions": 66,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 19.0
+    },
+    "dns_win": {
+     "questions": 50,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 21.0
+    }
+   },
+   "worsened": [],
+   "changed": [],
+   "verdicts": {
+    "dns.time": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      66,
+      48
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dns.answered": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      66,
+      48
+     ],
+     "k": [
+      66,
+      48
+     ]
+    },
+    "dns.failed": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      66,
+      48
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dhcp.discover": {
+     "verdict": "cant-tell",
+     "reason": "weak",
+     "quality": "insufficient",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      7
+     ]
+    },
+    "arp.request": {
+     "verdict": "cant-tell",
+     "reason": "loss-explains",
+     "quality": "insufficient",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      105,
+      90
+     ]
+    }
+   }
+  },
+  {
+   "id": "s12",
+   "spec": {
+    "id": "s12",
+    "kind": "loss",
+    "fault": null,
+    "metric": null,
+    "onset": 60.0,
+    "art": "loss",
+    "art_base": null,
+    "dns_rate": 1.0,
+    "busy": 1,
+    "arp_bursty": 1,
+    "events": [
+     [
+      99.2,
+      "pause",
+      4.0
+     ]
+    ]
+   },
+   "truth": {
+    "arp": [
+     93,
+     87
+    ],
+    "discover_per_s": [
+     0.16666666666666666,
+     0.11666666666666667
+    ],
+    "dns_base": {
+     "questions": 66,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 19.0
+    },
+    "dns_win": {
+     "questions": 50,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 21.0
+    }
+   },
+   "worsened": [],
+   "changed": [],
+   "verdicts": {
+    "dns.time": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      66,
+      46
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dns.answered": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      66,
+      46
+     ],
+     "k": [
+      66,
+      46
+     ]
+    },
+    "dns.failed": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      66,
+      46
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dhcp.discover": {
+     "verdict": "cant-tell",
+     "reason": "weak",
+     "quality": "insufficient",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      5
+     ]
+    },
+    "arp.request": {
+     "verdict": "cant-tell",
+     "reason": "loss-explains",
+     "quality": "insufficient",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      101,
+      87
+     ]
+    }
+   }
+  },
+  {
+   "id": "s13",
+   "spec": {
+    "id": "s13",
+    "kind": "loss",
+    "fault": null,
+    "metric": null,
+    "onset": 60.0,
+    "art": "loss",
+    "art_base": null,
+    "dns_rate": 1.0,
+    "busy": 1,
+    "arp_bursty": 1,
+    "events": [
+     [
+      93.6,
+      "pause",
+      3.1
+     ]
+    ]
+   },
+   "truth": {
+    "arp": [
+     93,
+     87
+    ],
+    "discover_per_s": [
+     0.16666666666666666,
+     0.11666666666666667
+    ],
+    "dns_base": {
+     "questions": 66,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 19.0
+    },
+    "dns_win": {
+     "questions": 50,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 21.0
+    }
+   },
+   "worsened": [],
+   "changed": [],
+   "verdicts": {
+    "dns.time": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      66,
+      48
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dns.answered": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      66,
+      48
+     ],
+     "k": [
+      66,
+      48
+     ]
+    },
+    "dns.failed": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      66,
+      48
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dhcp.discover": {
+     "verdict": "cant-tell",
+     "reason": "weak",
+     "quality": "insufficient",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      7
+     ]
+    },
+    "arp.request": {
+     "verdict": "cant-tell",
+     "reason": "loss-explains",
+     "quality": "insufficient",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      102,
+      92
+     ]
+    }
+   }
+  },
+  {
+   "id": "s14",
+   "spec": {
+    "id": "s14",
+    "kind": "loss",
+    "fault": null,
+    "metric": null,
+    "onset": 60.0,
+    "art": "loss",
+    "art_base": null,
+    "dns_rate": 1.0,
+    "busy": 1,
+    "arp_bursty": 1,
+    "events": [
+     [
+      105.3,
+      "pause",
+      3.8
+     ]
+    ]
+   },
+   "truth": {
+    "arp": [
+     93,
+     87
+    ],
+    "discover_per_s": [
+     0.16666666666666666,
+     0.11666666666666667
+    ],
+    "dns_base": {
+     "questions": 66,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 19.0
+    },
+    "dns_win": {
+     "questions": 50,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 21.0
+    }
+   },
+   "worsened": [],
+   "changed": [],
+   "verdicts": {
+    "dns.time": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      66,
+      47
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dns.answered": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      66,
+      47
+     ],
+     "k": [
+      66,
+      47
+     ]
+    },
+    "dns.failed": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      66,
+      47
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dhcp.discover": {
+     "verdict": "cant-tell",
+     "reason": "weak",
+     "quality": "insufficient",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      6
+     ]
+    },
+    "arp.request": {
+     "verdict": "cant-tell",
+     "reason": "loss-explains",
+     "quality": "insufficient",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      101,
+      89
+     ]
+    }
+   }
+  },
+  {
+   "id": "s15",
+   "spec": {
+    "id": "s15",
+    "kind": "hold",
+    "fault": null,
+    "metric": null,
+    "onset": 60.0,
+    "art": "hold",
+    "art_base": null,
+    "dns_rate": 1.0,
+    "busy": 0,
+    "arp_bursty": 1,
+    "events": [
+     [
+      69.5,
+      "hold",
+      1
+     ],
+     [
+      86.9,
+      "hold",
+      0
+     ]
+    ]
+   },
+   "truth": {
+    "arp": [
+     93,
+     87
+    ],
+    "discover_per_s": [
+     0.16666666666666666,
+     0.11666666666666667
+    ],
+    "dns_base": {
+     "questions": 66,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 19.0
+    },
+    "dns_win": {
+     "questions": 50,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 21.0
+    }
+   },
+   "worsened": [],
+   "changed": [],
+   "verdicts": {
+    "dns.time": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      66,
+      29
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dns.answered": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      66,
+      29
+     ],
+     "k": [
+      66,
+      29
+     ]
+    },
+    "dns.failed": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      66,
+      29
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dhcp.discover": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      60,
+      42
+     ],
+     "k": [
+      10,
+      6
+     ]
+    },
+    "arp.request": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      60,
+      42
+     ],
+     "k": [
+      100,
+      73
+     ]
+    }
+   }
+  },
+  {
+   "id": "s16",
+   "spec": {
+    "id": "s16",
+    "kind": "hold",
+    "fault": null,
+    "metric": null,
+    "onset": 60.0,
+    "art": "hold",
+    "art_base": null,
+    "dns_rate": 1.0,
+    "busy": 0,
+    "arp_bursty": 1,
+    "events": [
+     [
+      70.6,
+      "hold",
+      1
+     ],
+     [
+      89.5,
+      "hold",
+      0
+     ]
+    ]
+   },
+   "truth": {
+    "arp": [
+     93,
+     87
+    ],
+    "discover_per_s": [
+     0.16666666666666666,
+     0.11666666666666667
+    ],
+    "dns_base": {
+     "questions": 66,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 19.0
+    },
+    "dns_win": {
+     "questions": 50,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 21.0
+    }
+   },
+   "worsened": [],
+   "changed": [],
+   "verdicts": {
+    "dns.time": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      66,
+      30
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dns.answered": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      66,
+      30
+     ],
+     "k": [
+      66,
+      30
+     ]
+    },
+    "dns.failed": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      66,
+      30
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dhcp.discover": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      60,
+      40
+     ],
+     "k": [
+      10,
+      6
+     ]
+    },
+    "arp.request": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      60,
+      40
+     ],
+     "k": [
+      100,
+      72
+     ]
+    }
+   }
+  },
+  {
+   "id": "s17",
+   "spec": {
+    "id": "s17",
+    "kind": "hold",
+    "fault": null,
+    "metric": null,
+    "onset": 60.0,
+    "art": "hold",
+    "art_base": null,
+    "dns_rate": 1.0,
+    "busy": 0,
+    "arp_bursty": 1,
+    "events": [
+     [
+      73.1,
+      "hold",
+      1
+     ],
+     [
+      85.8,
+      "hold",
+      0
+     ]
+    ]
+   },
+   "truth": {
+    "arp": [
+     93,
+     87
+    ],
+    "discover_per_s": [
+     0.16666666666666666,
+     0.11666666666666667
+    ],
+    "dns_base": {
+     "questions": 66,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 19.0
+    },
+    "dns_win": {
+     "questions": 50,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 21.0
+    }
+   },
+   "worsened": [],
+   "changed": [],
+   "verdicts": {
+    "dns.time": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      66,
+      40
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dns.answered": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      66,
+      40
+     ],
+     "k": [
+      66,
+      40
+     ]
+    },
+    "dns.failed": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      66,
+      40
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dhcp.discover": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      60,
+      47
+     ],
+     "k": [
+      10,
+      6
+     ]
+    },
+    "arp.request": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      60,
+      47
+     ],
+     "k": [
+      99,
+      75
+     ]
+    }
+   }
+  },
+  {
+   "id": "s18",
+   "spec": {
+    "id": "s18",
+    "kind": "hold",
+    "fault": null,
+    "metric": null,
+    "onset": 60.0,
+    "art": "hold",
+    "art_base": null,
+    "dns_rate": 1.0,
+    "busy": 0,
+    "arp_bursty": 1,
+    "events": [
+     [
+      87.4,
+      "hold",
+      1
+     ],
+     [
+      105.7,
+      "hold",
+      0
+     ]
+    ]
+   },
+   "truth": {
+    "arp": [
+     93,
+     87
+    ],
+    "discover_per_s": [
+     0.16666666666666666,
+     0.11666666666666667
+    ],
+    "dns_base": {
+     "questions": 66,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 19.0
+    },
+    "dns_win": {
+     "questions": 50,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 21.0
+    }
+   },
+   "worsened": [],
+   "changed": [],
+   "verdicts": {
+    "dns.time": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      66,
+      34
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dns.answered": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      66,
+      34
+     ],
+     "k": [
+      66,
+      34
+     ]
+    },
+    "dns.failed": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      66,
+      34
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dhcp.discover": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      60,
+      41
+     ],
+     "k": [
+      10,
+      3
+     ]
+    },
+    "arp.request": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      60,
+      41
+     ],
+     "k": [
+      99,
+      55
+     ]
+    }
+   }
+  },
+  {
+   "id": "s19",
+   "spec": {
+    "id": "s19",
+    "kind": "hold-base",
+    "fault": null,
+    "metric": null,
+    "onset": 60.0,
+    "art": null,
+    "art_base": "hold",
+    "dns_rate": 1.0,
+    "busy": 0,
+    "arp_bursty": 1,
+    "events": [
+     [
+      23.2,
+      "hold",
+      1
+     ],
+     [
+      35.0,
+      "hold",
+      0
+     ]
+    ]
+   },
+   "truth": {
+    "arp": [
+     93,
+     87
+    ],
+    "discover_per_s": [
+     0.16666666666666666,
+     0.11666666666666667
+    ],
+    "dns_base": {
+     "questions": 66,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 19.0
+    },
+    "dns_win": {
+     "questions": 50,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 21.0
+    }
+   },
+   "worsened": [],
+   "changed": [],
+   "verdicts": {
+    "dns.time": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      56,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dns.answered": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      56,
+      50
+     ],
+     "k": [
+      56,
+      50
+     ]
+    },
+    "dns.failed": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      56,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dhcp.discover": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      47,
+      60
+     ],
+     "k": [
+      10,
+      7
+     ]
+    },
+    "arp.request": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      47,
+      60
+     ],
+     "k": [
+      73,
+      91
+     ]
+    }
+   }
+  },
+  {
+   "id": "s20",
+   "spec": {
+    "id": "s20",
+    "kind": "hold-base",
+    "fault": null,
+    "metric": null,
+    "onset": 60.0,
+    "art": null,
+    "art_base": "hold",
+    "dns_rate": 1.0,
+    "busy": 0,
+    "arp_bursty": 1,
+    "events": [
+     [
+      26.4,
+      "hold",
+      1
+     ],
+     [
+      39.8,
+      "hold",
+      0
+     ]
+    ]
+   },
+   "truth": {
+    "arp": [
+     93,
+     87
+    ],
+    "discover_per_s": [
+     0.16666666666666666,
+     0.11666666666666667
+    ],
+    "dns_base": {
+     "questions": 66,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 19.0
+    },
+    "dns_win": {
+     "questions": 50,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 21.0
+    }
+   },
+   "worsened": [],
+   "changed": [],
+   "verdicts": {
+    "dns.time": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      55,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dns.answered": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      55,
+      50
+     ],
+     "k": [
+      55,
+      50
+     ]
+    },
+    "dns.failed": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      55,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dhcp.discover": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      46,
+      60
+     ],
+     "k": [
+      9,
+      7
+     ]
+    },
+    "arp.request": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      46,
+      60
+     ],
+     "k": [
+      71,
+      92
+     ]
+    }
+   }
+  },
+  {
+   "id": "s21",
+   "spec": {
+    "id": "s21",
+    "kind": "loss-base",
+    "fault": null,
+    "metric": null,
+    "onset": 60.0,
+    "art": null,
+    "art_base": "loss",
+    "dns_rate": 1.0,
+    "busy": 1,
+    "arp_bursty": 1,
+    "events": [
+     [
+      31.5,
+      "pause",
+      2.7
+     ]
+    ]
+   },
+   "truth": {
+    "arp": [
+     93,
+     87
+    ],
+    "discover_per_s": [
+     0.16666666666666666,
+     0.11666666666666667
+    ],
+    "dns_base": {
+     "questions": 66,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 19.0
+    },
+    "dns_win": {
+     "questions": 50,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 21.0
+    }
+   },
+   "worsened": [],
+   "changed": [],
+   "verdicts": {
+    "dns.time": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      64,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dns.answered": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      64,
+      50
+     ],
+     "k": [
+      64,
+      50
+     ]
+    },
+    "dns.failed": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      64,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dhcp.discover": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      7
+     ]
+    },
+    "arp.request": {
+     "verdict": "cant-tell",
+     "reason": "loss-explains",
+     "quality": "insufficient",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      94,
+      98
+     ]
+    }
+   }
+  },
+  {
+   "id": "s22",
+   "spec": {
+    "id": "s22",
+    "kind": "loss-base",
+    "fault": null,
+    "metric": null,
+    "onset": 60.0,
+    "art": null,
+    "art_base": "loss",
+    "dns_rate": 1.0,
+    "busy": 1,
+    "arp_bursty": 1,
+    "events": [
+     [
+      13.0,
+      "pause",
+      3.0
+     ]
+    ]
+   },
+   "truth": {
+    "arp": [
+     93,
+     87
+    ],
+    "discover_per_s": [
+     0.16666666666666666,
+     0.11666666666666667
+    ],
+    "dns_base": {
+     "questions": 66,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 19.0
+    },
+    "dns_win": {
+     "questions": 50,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 21.0
+    }
+   },
+   "worsened": [],
+   "changed": [],
+   "verdicts": {
+    "dns.time": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      61,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dns.answered": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      61,
+      50
+     ],
+     "k": [
+      61,
+      50
+     ]
+    },
+    "dns.failed": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      61,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dhcp.discover": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      9,
+      7
+     ]
+    },
+    "arp.request": {
+     "verdict": "cant-tell",
+     "reason": "loss-explains",
+     "quality": "insufficient",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      100,
+      97
+     ]
+    }
+   }
+  },
+  {
+   "id": "s23",
+   "spec": {
+    "id": "s23",
+    "kind": "asymmetric-return",
+    "fault": null,
+    "metric": null,
+    "onset": 60.0,
+    "art": "asym",
+    "art_base": null,
+    "dns_rate": 1.0,
+    "busy": 0,
+    "arp_bursty": 1,
+    "events": [
+     [
+      77.4,
+      "asym",
+      1
+     ],
+     [
+      100.30000000000001,
+      "asym",
+      0
+     ]
+    ]
+   },
+   "truth": {
+    "arp": [
+     93,
+     87
+    ],
+    "discover_per_s": [
+     0.16666666666666666,
+     0.11666666666666667
+    ],
+    "dns_base": {
+     "questions": 66,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 19.0
+    },
+    "dns_win": {
+     "questions": 50,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 21.0
+    }
+   },
+   "worsened": [],
+   "changed": [],
+   "verdicts": {
+    "dns.time": {
+     "verdict": "cant-tell",
+     "reason": "weak",
+     "quality": "insufficient",
+     "n": [
+      66,
+      31
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dns.answered": {
+     "verdict": "worse",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      66,
+      31
+     ]
+    },
+    "dns.failed": {
+     "verdict": "cant-tell",
+     "reason": "weak",
+     "quality": "insufficient",
+     "n": [
+      66,
+      31
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dhcp.discover": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      7
+     ]
+    },
+    "arp.request": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      101,
+      93
+     ]
+    }
+   }
+  },
+  {
+   "id": "s24",
+   "spec": {
+    "id": "s24",
+    "kind": "asymmetric-return",
+    "fault": null,
+    "metric": null,
+    "onset": 60.0,
+    "art": "asym",
+    "art_base": null,
+    "dns_rate": 1.0,
+    "busy": 0,
+    "arp_bursty": 1,
+    "events": [
+     [
+      65.6,
+      "asym",
+      1
+     ],
+     [
+      88.3,
+      "asym",
+      0
+     ]
+    ]
+   },
+   "truth": {
+    "arp": [
+     93,
+     87
+    ],
+    "discover_per_s": [
+     0.16666666666666666,
+     0.11666666666666667
+    ],
+    "dns_base": {
+     "questions": 66,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 19.0
+    },
+    "dns_win": {
+     "questions": 50,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 21.0
+    }
+   },
+   "worsened": [],
+   "changed": [],
+   "verdicts": {
+    "dns.time": {
+     "verdict": "cant-tell",
+     "reason": "weak",
+     "quality": "insufficient",
+     "n": [
+      66,
+      26
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dns.answered": {
+     "verdict": "worse",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      66,
+      26
+     ]
+    },
+    "dns.failed": {
+     "verdict": "cant-tell",
+     "reason": "weak",
+     "quality": "insufficient",
+     "n": [
+      66,
+      26
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dhcp.discover": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      7
+     ]
+    },
+    "arp.request": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      101,
+      94
+     ]
+    }
+   }
+  },
+  {
+   "id": "s25",
+   "spec": {
+    "id": "s25",
+    "kind": "asymmetric-return",
+    "fault": null,
+    "metric": null,
+    "onset": 60.0,
+    "art": "asym",
+    "art_base": null,
+    "dns_rate": 1.0,
+    "busy": 0,
+    "arp_bursty": 1,
+    "events": [
+     [
+      72.5,
+      "asym",
+      1
+     ],
+     [
+      105.7,
+      "asym",
+      0
+     ]
+    ]
+   },
+   "truth": {
+    "arp": [
+     93,
+     87
+    ],
+    "discover_per_s": [
+     0.16666666666666666,
+     0.11666666666666667
+    ],
+    "dns_base": {
+     "questions": 66,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 19.0
+    },
+    "dns_win": {
+     "questions": 50,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 21.0
+    }
+   },
+   "worsened": [],
+   "changed": [],
+   "verdicts": {
+    "dns.time": {
+     "verdict": "cant-tell",
+     "reason": "weak",
+     "quality": "insufficient",
+     "n": [
+      66,
+      22
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dns.answered": {
+     "verdict": "worse",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      66,
+      22
+     ]
+    },
+    "dns.failed": {
+     "verdict": "cant-tell",
+     "reason": "weak",
+     "quality": "insufficient",
+     "n": [
+      66,
+      22
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dhcp.discover": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      7
+     ]
+    },
+    "arp.request": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      101,
+      92
+     ]
+    }
+   }
+  },
+  {
+   "id": "s26",
+   "spec": {
+    "id": "s26",
+    "kind": "asymmetric-return",
+    "fault": null,
+    "metric": null,
+    "onset": 60.0,
+    "art": "asym",
+    "art_base": null,
+    "dns_rate": 1.0,
+    "busy": 0,
+    "arp_bursty": 1,
+    "events": [
+     [
+      83.0,
+      "asym",
+      1
+     ],
+     [
+      107.7,
+      "asym",
+      0
+     ]
+    ]
+   },
+   "truth": {
+    "arp": [
+     93,
+     87
+    ],
+    "discover_per_s": [
+     0.16666666666666666,
+     0.11666666666666667
+    ],
+    "dns_base": {
+     "questions": 66,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 19.0
+    },
+    "dns_win": {
+     "questions": 50,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 21.0
+    }
+   },
+   "worsened": [],
+   "changed": [],
+   "verdicts": {
+    "dns.time": {
+     "verdict": "cant-tell",
+     "reason": "weak",
+     "quality": "insufficient",
+     "n": [
+      66,
+      26
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dns.answered": {
+     "verdict": "worse",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      66,
+      26
+     ]
+    },
+    "dns.failed": {
+     "verdict": "cant-tell",
+     "reason": "weak",
+     "quality": "insufficient",
+     "n": [
+      66,
+      26
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dhcp.discover": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      7
+     ]
+    },
+    "arp.request": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      99,
+      93
+     ]
+    }
+   }
+  },
+  {
+   "id": "s27",
+   "spec": {
+    "id": "s27",
+    "kind": "fault",
+    "fault": "arp_storm",
+    "metric": "arp.request",
+    "onset": 60.0,
+    "art": null,
+    "art_base": null,
+    "dns_rate": 1.0,
+    "busy": 0,
+    "arp_bursty": 1,
+    "events": [
+     [
+      60.0,
+      "mode",
+      {
+       "arp_storm": 1.6
+      }
+     ]
+    ]
+   },
+   "truth": {
+    "arp": [
+     93,
+     469
+    ],
+    "discover_per_s": [
+     0.16666666666666666,
+     0.11666666666666667
+    ],
+    "dns_base": {
+     "questions": 66,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 19.0
+    },
+    "dns_win": {
+     "questions": 50,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 21.0
+    }
+   },
+   "worsened": [
+    "arp.request"
+   ],
+   "changed": [
+    "arp.request"
+   ],
+   "verdicts": {
+    "dns.time": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dns.answered": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      66,
+      50
+     ]
+    },
+    "dns.failed": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dhcp.discover": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      7
+     ]
+    },
+    "arp.request": {
+     "verdict": "worse",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      100,
+      478
+     ]
+    }
+   }
+  },
+  {
+   "id": "s28",
+   "spec": {
+    "id": "s28",
+    "kind": "fault",
+    "fault": "arp_storm",
+    "metric": "arp.request",
+    "onset": 60.0,
+    "art": null,
+    "art_base": null,
+    "dns_rate": 1.0,
+    "busy": 0,
+    "arp_bursty": 1,
+    "events": [
+     [
+      60.0,
+      "mode",
+      {
+       "arp_storm": 1.6
+      }
+     ]
+    ]
+   },
+   "truth": {
+    "arp": [
+     93,
+     454
+    ],
+    "discover_per_s": [
+     0.16666666666666666,
+     0.11666666666666667
+    ],
+    "dns_base": {
+     "questions": 66,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 19.0
+    },
+    "dns_win": {
+     "questions": 50,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 21.0
+    }
+   },
+   "worsened": [],
+   "changed": [
+    "arp.request"
+   ],
+   "verdicts": {
+    "dns.time": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dns.answered": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      66,
+      50
+     ]
+    },
+    "dns.failed": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dhcp.discover": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      7
+     ]
+    },
+    "arp.request": {
+     "verdict": "worse",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      99,
+      461
+     ]
+    }
+   }
+  },
+  {
+   "id": "s29",
+   "spec": {
+    "id": "s29",
+    "kind": "fault",
+    "fault": "arp_storm",
+    "metric": "arp.request",
+    "onset": 60.0,
+    "art": null,
+    "art_base": null,
+    "dns_rate": 1.0,
+    "busy": 0,
+    "arp_bursty": 1,
+    "events": [
+     [
+      60.0,
+      "mode",
+      {
+       "arp_storm": 1.6
+      }
+     ]
+    ]
+   },
+   "truth": {
+    "arp": [
+     93,
+     467
+    ],
+    "discover_per_s": [
+     0.16666666666666666,
+     0.11666666666666667
+    ],
+    "dns_base": {
+     "questions": 66,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 19.0
+    },
+    "dns_win": {
+     "questions": 50,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 21.0
+    }
+   },
+   "worsened": [
+    "arp.request"
+   ],
+   "changed": [
+    "arp.request"
+   ],
+   "verdicts": {
+    "dns.time": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dns.answered": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      66,
+      50
+     ]
+    },
+    "dns.failed": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dhcp.discover": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      7
+     ]
+    },
+    "arp.request": {
+     "verdict": "worse",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      99,
+      471
+     ]
+    }
+   }
+  },
+  {
+   "id": "s30",
+   "spec": {
+    "id": "s30",
+    "kind": "fault-mid",
+    "fault": "arp_storm",
+    "metric": "arp.request",
+    "onset": 89.9,
+    "art": null,
+    "art_base": null,
+    "dns_rate": 1.0,
+    "busy": 0,
+    "arp_bursty": 1,
+    "events": [
+     [
+      89.9,
+      "mode",
+      {
+       "arp_storm": 2.6
+      }
+     ]
+    ]
+   },
+   "truth": {
+    "arp": [
+     93,
+     392
+    ],
+    "discover_per_s": [
+     0.16666666666666666,
+     0.11666666666666667
+    ],
+    "dns_base": {
+     "questions": 66,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 19.0
+    },
+    "dns_win": {
+     "questions": 50,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 21.0
+    }
+   },
+   "worsened": [],
+   "changed": [
+    "arp.request"
+   ],
+   "verdicts": {
+    "dns.time": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dns.answered": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      66,
+      50
+     ]
+    },
+    "dns.failed": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dhcp.discover": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      7
+     ]
+    },
+    "arp.request": {
+     "verdict": "cant-tell",
+     "reason": "loss-explains",
+     "quality": "insufficient",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      99,
+      399
+     ]
+    }
+   }
+  },
+  {
+   "id": "s31",
+   "spec": {
+    "id": "s31",
+    "kind": "fault-mid",
+    "fault": "arp_storm",
+    "metric": "arp.request",
+    "onset": 81.1,
+    "art": null,
+    "art_base": null,
+    "dns_rate": 1.0,
+    "busy": 0,
+    "arp_bursty": 1,
+    "events": [
+     [
+      81.1,
+      "mode",
+      {
+       "arp_storm": 2.6
+      }
+     ]
+    ]
+   },
+   "truth": {
+    "arp": [
+     93,
+     455
+    ],
+    "discover_per_s": [
+     0.16666666666666666,
+     0.11666666666666667
+    ],
+    "dns_base": {
+     "questions": 66,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 19.0
+    },
+    "dns_win": {
+     "questions": 50,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 21.0
+    }
+   },
+   "worsened": [],
+   "changed": [
+    "arp.request"
+   ],
+   "verdicts": {
+    "dns.time": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dns.answered": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      66,
+      50
+     ]
+    },
+    "dns.failed": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dhcp.discover": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      7
+     ]
+    },
+    "arp.request": {
+     "verdict": "worse",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      101,
+      461
+     ]
+    }
+   }
+  },
+  {
+   "id": "s32",
+   "spec": {
+    "id": "s32",
+    "kind": "fault-mid",
+    "fault": "arp_storm",
+    "metric": "arp.request",
+    "onset": 81.2,
+    "art": null,
+    "art_base": null,
+    "dns_rate": 1.0,
+    "busy": 0,
+    "arp_bursty": 1,
+    "events": [
+     [
+      81.2,
+      "mode",
+      {
+       "arp_storm": 2.6
+      }
+     ]
+    ]
+   },
+   "truth": {
+    "arp": [
+     93,
+     462
+    ],
+    "discover_per_s": [
+     0.16666666666666666,
+     0.11666666666666667
+    ],
+    "dns_base": {
+     "questions": 66,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 19.0
+    },
+    "dns_win": {
+     "questions": 50,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 21.0
+    }
+   },
+   "worsened": [],
+   "changed": [
+    "arp.request"
+   ],
+   "verdicts": {
+    "dns.time": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dns.answered": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      66,
+      50
+     ]
+    },
+    "dns.failed": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dhcp.discover": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      7
+     ]
+    },
+    "arp.request": {
+     "verdict": "worse",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      99,
+      469
+     ]
+    }
+   }
+  },
+  {
+   "id": "s33",
+   "spec": {
+    "id": "s33",
+    "kind": "fault",
+    "fault": "dhcp_trouble",
+    "metric": "dhcp.discover",
+    "onset": 60.0,
+    "art": null,
+    "art_base": null,
+    "dns_rate": 1.0,
+    "busy": 0,
+    "arp_bursty": 1,
+    "events": [
+     [
+      60.0,
+      "mode",
+      {
+       "dhcp_answer": 0
+      }
+     ]
+    ]
+   },
+   "truth": {
+    "arp": [
+     93,
+     87
+    ],
+    "discover_per_s": [
+     0.16666666666666666,
+     0.38333333333333336
+    ],
+    "dns_base": {
+     "questions": 66,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 19.0
+    },
+    "dns_win": {
+     "questions": 50,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 21.0
+    }
+   },
+   "worsened": [],
+   "changed": [
+    "dhcp.discover"
+   ],
+   "verdicts": {
+    "dns.time": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dns.answered": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      66,
+      50
+     ]
+    },
+    "dns.failed": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dhcp.discover": {
+     "verdict": "cant-tell",
+     "reason": "weak",
+     "quality": "insufficient",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      23
+     ]
+    },
+    "arp.request": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      101,
+      91
+     ]
+    }
+   }
+  },
+  {
+   "id": "s34",
+   "spec": {
+    "id": "s34",
+    "kind": "fault",
+    "fault": "dhcp_trouble",
+    "metric": "dhcp.discover",
+    "onset": 60.0,
+    "art": null,
+    "art_base": null,
+    "dns_rate": 1.0,
+    "busy": 0,
+    "arp_bursty": 1,
+    "events": [
+     [
+      60.0,
+      "mode",
+      {
+       "dhcp_answer": 0
+      }
+     ]
+    ]
+   },
+   "truth": {
+    "arp": [
+     93,
+     87
+    ],
+    "discover_per_s": [
+     0.16666666666666666,
+     0.38333333333333336
+    ],
+    "dns_base": {
+     "questions": 66,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 19.0
+    },
+    "dns_win": {
+     "questions": 50,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 21.0
+    }
+   },
+   "worsened": [],
+   "changed": [
+    "dhcp.discover"
+   ],
+   "verdicts": {
+    "dns.time": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dns.answered": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      66,
+      50
+     ]
+    },
+    "dns.failed": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dhcp.discover": {
+     "verdict": "cant-tell",
+     "reason": "weak",
+     "quality": "insufficient",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      23
+     ]
+    },
+    "arp.request": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      99,
+      91
+     ]
+    }
+   }
+  },
+  {
+   "id": "s35",
+   "spec": {
+    "id": "s35",
+    "kind": "fault",
+    "fault": "dhcp_trouble",
+    "metric": "dhcp.discover",
+    "onset": 60.0,
+    "art": null,
+    "art_base": null,
+    "dns_rate": 1.0,
+    "busy": 0,
+    "arp_bursty": 1,
+    "events": [
+     [
+      60.0,
+      "mode",
+      {
+       "dhcp_answer": 0
+      }
+     ]
+    ]
+   },
+   "truth": {
+    "arp": [
+     93,
+     87
+    ],
+    "discover_per_s": [
+     0.16666666666666666,
+     0.38333333333333336
+    ],
+    "dns_base": {
+     "questions": 66,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 19.0
+    },
+    "dns_win": {
+     "questions": 50,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 21.0
+    }
+   },
+   "worsened": [],
+   "changed": [
+    "dhcp.discover"
+   ],
+   "verdicts": {
+    "dns.time": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dns.answered": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      66,
+      50
+     ]
+    },
+    "dns.failed": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dhcp.discover": {
+     "verdict": "cant-tell",
+     "reason": "weak",
+     "quality": "insufficient",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      23
+     ]
+    },
+    "arp.request": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      101,
+      93
+     ]
+    }
+   }
+  },
+  {
+   "id": "s36",
+   "spec": {
+    "id": "s36",
+    "kind": "fault-mid",
+    "fault": "dhcp_trouble",
+    "metric": "dhcp.discover",
+    "onset": 85.1,
+    "art": null,
+    "art_base": null,
+    "dns_rate": 1.0,
+    "busy": 0,
+    "arp_bursty": 1,
+    "events": [
+     [
+      85.1,
+      "mode",
+      {
+       "dhcp_answer": 0
+      }
+     ]
+    ]
+   },
+   "truth": {
+    "arp": [
+     93,
+     87
+    ],
+    "discover_per_s": [
+     0.16666666666666666,
+     0.3333333333333333
+    ],
+    "dns_base": {
+     "questions": 66,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 19.0
+    },
+    "dns_win": {
+     "questions": 50,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 21.0
+    }
+   },
+   "worsened": [],
+   "changed": [
+    "dhcp.discover"
+   ],
+   "verdicts": {
+    "dns.time": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dns.answered": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      66,
+      50
+     ]
+    },
+    "dns.failed": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dhcp.discover": {
+     "verdict": "cant-tell",
+     "reason": "weak",
+     "quality": "insufficient",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      20
+     ]
+    },
+    "arp.request": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      102,
+      93
+     ]
+    }
+   }
+  },
+  {
+   "id": "s37",
+   "spec": {
+    "id": "s37",
+    "kind": "fault-mid",
+    "fault": "dhcp_trouble",
+    "metric": "dhcp.discover",
+    "onset": 89.9,
+    "art": null,
+    "art_base": null,
+    "dns_rate": 1.0,
+    "busy": 0,
+    "arp_bursty": 1,
+    "events": [
+     [
+      89.9,
+      "mode",
+      {
+       "dhcp_answer": 0
+      }
+     ]
+    ]
+   },
+   "truth": {
+    "arp": [
+     93,
+     87
+    ],
+    "discover_per_s": [
+     0.16666666666666666,
+     0.3333333333333333
+    ],
+    "dns_base": {
+     "questions": 66,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 19.0
+    },
+    "dns_win": {
+     "questions": 50,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 21.0
+    }
+   },
+   "worsened": [],
+   "changed": [
+    "dhcp.discover"
+   ],
+   "verdicts": {
+    "dns.time": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dns.answered": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      66,
+      50
+     ]
+    },
+    "dns.failed": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dhcp.discover": {
+     "verdict": "cant-tell",
+     "reason": "weak",
+     "quality": "insufficient",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      20
+     ]
+    },
+    "arp.request": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      100,
+      94
+     ]
+    }
+   }
+  },
+  {
+   "id": "s38",
+   "spec": {
+    "id": "s38",
+    "kind": "fault-mid",
+    "fault": "dhcp_trouble",
+    "metric": "dhcp.discover",
+    "onset": 91.1,
+    "art": null,
+    "art_base": null,
+    "dns_rate": 1.0,
+    "busy": 0,
+    "arp_bursty": 1,
+    "events": [
+     [
+      91.1,
+      "mode",
+      {
+       "dhcp_answer": 0
+      }
+     ]
+    ]
+   },
+   "truth": {
+    "arp": [
+     93,
+     87
+    ],
+    "discover_per_s": [
+     0.16666666666666666,
+     0.2833333333333333
+    ],
+    "dns_base": {
+     "questions": 66,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 19.0
+    },
+    "dns_win": {
+     "questions": 50,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 21.0
+    }
+   },
+   "worsened": [],
+   "changed": [
+    "dhcp.discover"
+   ],
+   "verdicts": {
+    "dns.time": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dns.answered": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      66,
+      50
+     ]
+    },
+    "dns.failed": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dhcp.discover": {
+     "verdict": "cant-tell",
+     "reason": "weak",
+     "quality": "insufficient",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      17
+     ]
+    },
+    "arp.request": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      99,
+      93
+     ]
+    }
+   }
+  },
+  {
+   "id": "s39",
+   "spec": {
+    "id": "s39",
+    "kind": "fault",
+    "fault": "dns_down",
+    "metric": "dns.answered",
+    "onset": 60.0,
+    "art": null,
+    "art_base": null,
+    "dns_rate": 1.0,
+    "busy": 0,
+    "arp_bursty": 1,
+    "events": [
+     [
+      60.0,
+      "mode",
+      {
+       "drop": 0.9
+      }
+     ]
+    ]
+   },
+   "truth": {
+    "arp": [
+     93,
+     87
+    ],
+    "discover_per_s": [
+     0.16666666666666666,
+     0.11666666666666667
+    ],
+    "dns_base": {
+     "questions": 66,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 19.0
+    },
+    "dns_win": {
+     "questions": 50,
+     "dropped": 46,
+     "servfail": 0,
+     "delay_median": 16.5
+    }
+   },
+   "worsened": [
+    "dns.answered"
+   ],
+   "changed": [
+    "dns.answered"
+   ],
+   "verdicts": {
+    "dns.time": {
+     "verdict": "cant-tell",
+     "reason": "too-few",
+     "quality": "insufficient",
+     "n": [
+      66,
+      4
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dns.answered": {
+     "verdict": "worse",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      66,
+      4
+     ]
+    },
+    "dns.failed": {
+     "verdict": "cant-tell",
+     "reason": "too-few",
+     "quality": "insufficient",
+     "n": [
+      66,
+      4
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dhcp.discover": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      7
+     ]
+    },
+    "arp.request": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      99,
+      92
+     ]
+    }
+   }
+  },
+  {
+   "id": "s40",
+   "spec": {
+    "id": "s40",
+    "kind": "fault",
+    "fault": "dns_down",
+    "metric": "dns.answered",
+    "onset": 60.0,
+    "art": null,
+    "art_base": null,
+    "dns_rate": 1.0,
+    "busy": 0,
+    "arp_bursty": 1,
+    "events": [
+     [
+      60.0,
+      "mode",
+      {
+       "drop": 0.9
+      }
+     ]
+    ]
+   },
+   "truth": {
+    "arp": [
+     93,
+     87
+    ],
+    "discover_per_s": [
+     0.16666666666666666,
+     0.11666666666666667
+    ],
+    "dns_base": {
+     "questions": 66,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 19.0
+    },
+    "dns_win": {
+     "questions": 50,
+     "dropped": 46,
+     "servfail": 0,
+     "delay_median": 16.5
+    }
+   },
+   "worsened": [
+    "dns.answered"
+   ],
+   "changed": [
+    "dns.answered"
+   ],
+   "verdicts": {
+    "dns.time": {
+     "verdict": "cant-tell",
+     "reason": "too-few",
+     "quality": "insufficient",
+     "n": [
+      66,
+      4
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dns.answered": {
+     "verdict": "worse",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      66,
+      4
+     ]
+    },
+    "dns.failed": {
+     "verdict": "cant-tell",
+     "reason": "too-few",
+     "quality": "insufficient",
+     "n": [
+      66,
+      4
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dhcp.discover": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      7
+     ]
+    },
+    "arp.request": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      99,
+      93
+     ]
+    }
+   }
+  },
+  {
+   "id": "s41",
+   "spec": {
+    "id": "s41",
+    "kind": "fault",
+    "fault": "dns_down",
+    "metric": "dns.answered",
+    "onset": 60.0,
+    "art": null,
+    "art_base": null,
+    "dns_rate": 1.0,
+    "busy": 0,
+    "arp_bursty": 1,
+    "events": [
+     [
+      60.0,
+      "mode",
+      {
+       "drop": 0.9
+      }
+     ]
+    ]
+   },
+   "truth": {
+    "arp": [
+     93,
+     87
+    ],
+    "discover_per_s": [
+     0.16666666666666666,
+     0.11666666666666667
+    ],
+    "dns_base": {
+     "questions": 66,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 19.0
+    },
+    "dns_win": {
+     "questions": 50,
+     "dropped": 46,
+     "servfail": 0,
+     "delay_median": 16.5
+    }
+   },
+   "worsened": [
+    "dns.answered"
+   ],
+   "changed": [
+    "dns.answered"
+   ],
+   "verdicts": {
+    "dns.time": {
+     "verdict": "cant-tell",
+     "reason": "too-few",
+     "quality": "insufficient",
+     "n": [
+      66,
+      4
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dns.answered": {
+     "verdict": "worse",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      66,
+      4
+     ]
+    },
+    "dns.failed": {
+     "verdict": "cant-tell",
+     "reason": "too-few",
+     "quality": "insufficient",
+     "n": [
+      66,
+      4
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dhcp.discover": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      7
+     ]
+    },
+    "arp.request": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      100,
+      92
+     ]
+    }
+   }
+  },
+  {
+   "id": "s42",
+   "spec": {
+    "id": "s42",
+    "kind": "fault-mid",
+    "fault": "dns_down",
+    "metric": "dns.answered",
+    "onset": 89.1,
+    "art": null,
+    "art_base": null,
+    "dns_rate": 1.0,
+    "busy": 0,
+    "arp_bursty": 1,
+    "events": [
+     [
+      89.1,
+      "mode",
+      {
+       "drop": 0.9
+      }
+     ]
+    ]
+   },
+   "truth": {
+    "arp": [
+     93,
+     87
+    ],
+    "discover_per_s": [
+     0.16666666666666666,
+     0.11666666666666667
+    ],
+    "dns_base": {
+     "questions": 66,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 19.0
+    },
+    "dns_win": {
+     "questions": 50,
+     "dropped": 20,
+     "servfail": 0,
+     "delay_median": 18.0
+    }
+   },
+   "worsened": [],
+   "changed": [
+    "dns.answered"
+   ],
+   "verdicts": {
+    "dns.time": {
+     "verdict": "cant-tell",
+     "reason": "weak",
+     "quality": "insufficient",
+     "n": [
+      66,
+      30
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dns.answered": {
+     "verdict": "worse",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      66,
+      30
+     ]
+    },
+    "dns.failed": {
+     "verdict": "cant-tell",
+     "reason": "weak",
+     "quality": "insufficient",
+     "n": [
+      66,
+      30
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dhcp.discover": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      7
+     ]
+    },
+    "arp.request": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      101,
+      95
+     ]
+    }
+   }
+  },
+  {
+   "id": "s43",
+   "spec": {
+    "id": "s43",
+    "kind": "fault-mid",
+    "fault": "dns_down",
+    "metric": "dns.answered",
+    "onset": 83.2,
+    "art": null,
+    "art_base": null,
+    "dns_rate": 1.0,
+    "busy": 0,
+    "arp_bursty": 1,
+    "events": [
+     [
+      83.2,
+      "mode",
+      {
+       "drop": 0.9
+      }
+     ]
+    ]
+   },
+   "truth": {
+    "arp": [
+     93,
+     87
+    ],
+    "discover_per_s": [
+     0.16666666666666666,
+     0.11666666666666667
+    ],
+    "dns_base": {
+     "questions": 66,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 19.0
+    },
+    "dns_win": {
+     "questions": 50,
+     "dropped": 26,
+     "servfail": 0,
+     "delay_median": 17.5
+    }
+   },
+   "worsened": [],
+   "changed": [
+    "dns.answered"
+   ],
+   "verdicts": {
+    "dns.time": {
+     "verdict": "cant-tell",
+     "reason": "weak",
+     "quality": "insufficient",
+     "n": [
+      66,
+      24
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dns.answered": {
+     "verdict": "worse",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      66,
+      24
+     ]
+    },
+    "dns.failed": {
+     "verdict": "cant-tell",
+     "reason": "weak",
+     "quality": "insufficient",
+     "n": [
+      66,
+      24
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dhcp.discover": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      7
+     ]
+    },
+    "arp.request": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      102,
+      92
+     ]
+    }
+   }
+  },
+  {
+   "id": "s44",
+   "spec": {
+    "id": "s44",
+    "kind": "fault",
+    "fault": "dns_slow",
+    "metric": "dns.time",
+    "onset": 60.0,
+    "art": null,
+    "art_base": null,
+    "dns_rate": 1.0,
+    "busy": 0,
+    "arp_bursty": 1,
+    "events": [
+     [
+      60.0,
+      "mode",
+      {
+       "delay_ms": [
+        120,
+        240
+       ]
+      }
+     ]
+    ]
+   },
+   "truth": {
+    "arp": [
+     93,
+     87
+    ],
+    "discover_per_s": [
+     0.16666666666666666,
+     0.11666666666666667
+    ],
+    "dns_base": {
+     "questions": 66,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 19.0
+    },
+    "dns_win": {
+     "questions": 50,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 189.5
+    }
+   },
+   "worsened": [
+    "dns.time"
+   ],
+   "changed": [
+    "dns.time"
+   ],
+   "verdicts": {
+    "dns.time": {
+     "verdict": "worse",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dns.answered": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      66,
+      50
+     ]
+    },
+    "dns.failed": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dhcp.discover": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      7
+     ]
+    },
+    "arp.request": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      102,
+      93
+     ]
+    }
+   }
+  },
+  {
+   "id": "s45",
+   "spec": {
+    "id": "s45",
+    "kind": "fault",
+    "fault": "dns_slow",
+    "metric": "dns.time",
+    "onset": 60.0,
+    "art": null,
+    "art_base": null,
+    "dns_rate": 1.0,
+    "busy": 0,
+    "arp_bursty": 1,
+    "events": [
+     [
+      60.0,
+      "mode",
+      {
+       "delay_ms": [
+        120,
+        240
+       ]
+      }
+     ]
+    ]
+   },
+   "truth": {
+    "arp": [
+     93,
+     87
+    ],
+    "discover_per_s": [
+     0.16666666666666666,
+     0.11666666666666667
+    ],
+    "dns_base": {
+     "questions": 66,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 19.0
+    },
+    "dns_win": {
+     "questions": 50,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 189.5
+    }
+   },
+   "worsened": [
+    "dns.time"
+   ],
+   "changed": [
+    "dns.time"
+   ],
+   "verdicts": {
+    "dns.time": {
+     "verdict": "worse",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dns.answered": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      66,
+      50
+     ]
+    },
+    "dns.failed": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dhcp.discover": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      7
+     ]
+    },
+    "arp.request": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      100,
+      93
+     ]
+    }
+   }
+  },
+  {
+   "id": "s46",
+   "spec": {
+    "id": "s46",
+    "kind": "fault",
+    "fault": "dns_slow",
+    "metric": "dns.time",
+    "onset": 60.0,
+    "art": null,
+    "art_base": null,
+    "dns_rate": 1.0,
+    "busy": 0,
+    "arp_bursty": 1,
+    "events": [
+     [
+      60.0,
+      "mode",
+      {
+       "delay_ms": [
+        120,
+        240
+       ]
+      }
+     ]
+    ]
+   },
+   "truth": {
+    "arp": [
+     93,
+     87
+    ],
+    "discover_per_s": [
+     0.16666666666666666,
+     0.11666666666666667
+    ],
+    "dns_base": {
+     "questions": 66,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 19.0
+    },
+    "dns_win": {
+     "questions": 50,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 189.5
+    }
+   },
+   "worsened": [
+    "dns.time"
+   ],
+   "changed": [
+    "dns.time"
+   ],
+   "verdicts": {
+    "dns.time": {
+     "verdict": "worse",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dns.answered": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      66,
+      50
+     ]
+    },
+    "dns.failed": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dhcp.discover": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      7
+     ]
+    },
+    "arp.request": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      101,
+      95
+     ]
+    }
+   }
+  },
+  {
+   "id": "s47",
+   "spec": {
+    "id": "s47",
+    "kind": "fault-mid",
+    "fault": "dns_slow",
+    "metric": "dns.time",
+    "onset": 89.3,
+    "art": null,
+    "art_base": null,
+    "dns_rate": 1.0,
+    "busy": 0,
+    "arp_bursty": 1,
+    "events": [
+     [
+      89.3,
+      "mode",
+      {
+       "delay_ms": [
+        120,
+        240
+       ]
+      }
+     ]
+    ]
+   },
+   "truth": {
+    "arp": [
+     93,
+     87
+    ],
+    "discover_per_s": [
+     0.16666666666666666,
+     0.11666666666666667
+    ],
+    "dns_base": {
+     "questions": 66,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 19.0
+    },
+    "dns_win": {
+     "questions": 50,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 28.0
+    }
+   },
+   "worsened": [],
+   "changed": [],
+   "verdicts": {
+    "dns.time": {
+     "verdict": "small",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dns.answered": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      66,
+      50
+     ]
+    },
+    "dns.failed": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dhcp.discover": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      7
+     ]
+    },
+    "arp.request": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      99,
+      93
+     ]
+    }
+   }
+  },
+  {
+   "id": "s48",
+   "spec": {
+    "id": "s48",
+    "kind": "fault-mid",
+    "fault": "dns_slow",
+    "metric": "dns.time",
+    "onset": 80.9,
+    "art": null,
+    "art_base": null,
+    "dns_rate": 1.0,
+    "busy": 0,
+    "arp_bursty": 1,
+    "events": [
+     [
+      80.9,
+      "mode",
+      {
+       "delay_ms": [
+        120,
+        240
+       ]
+      }
+     ]
+    ]
+   },
+   "truth": {
+    "arp": [
+     93,
+     87
+    ],
+    "discover_per_s": [
+     0.16666666666666666,
+     0.11666666666666667
+    ],
+    "dns_base": {
+     "questions": 66,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 19.0
+    },
+    "dns_win": {
+     "questions": 50,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 144.5
+    }
+   },
+   "worsened": [
+    "dns.time"
+   ],
+   "changed": [
+    "dns.time"
+   ],
+   "verdicts": {
+    "dns.time": {
+     "verdict": "worse",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dns.answered": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      66,
+      50
+     ]
+    },
+    "dns.failed": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dhcp.discover": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      7
+     ]
+    },
+    "arp.request": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      103,
+      97
+     ]
+    }
+   }
+  },
+  {
+   "id": "s49",
+   "spec": {
+    "id": "s49",
+    "kind": "fault",
+    "fault": "servfail",
+    "metric": "dns.failed",
+    "onset": 60.0,
+    "art": null,
+    "art_base": null,
+    "dns_rate": 1.0,
+    "busy": 0,
+    "arp_bursty": 1,
+    "events": [
+     [
+      60.0,
+      "mode",
+      {
+       "servfail": 0.5
+      }
+     ]
+    ]
+   },
+   "truth": {
+    "arp": [
+     93,
+     87
+    ],
+    "discover_per_s": [
+     0.16666666666666666,
+     0.11666666666666667
+    ],
+    "dns_base": {
+     "questions": 66,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 19.0
+    },
+    "dns_win": {
+     "questions": 50,
+     "dropped": 0,
+     "servfail": 24,
+     "delay_median": 21.0
+    }
+   },
+   "worsened": [
+    "dns.failed"
+   ],
+   "changed": [
+    "dns.failed"
+   ],
+   "verdicts": {
+    "dns.time": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dns.answered": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      66,
+      50
+     ]
+    },
+    "dns.failed": {
+     "verdict": "worse",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      24
+     ]
+    },
+    "dhcp.discover": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      7
+     ]
+    },
+    "arp.request": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      101,
+      94
+     ]
+    }
+   }
+  },
+  {
+   "id": "s50",
+   "spec": {
+    "id": "s50",
+    "kind": "fault",
+    "fault": "servfail",
+    "metric": "dns.failed",
+    "onset": 60.0,
+    "art": null,
+    "art_base": null,
+    "dns_rate": 1.0,
+    "busy": 0,
+    "arp_bursty": 1,
+    "events": [
+     [
+      60.0,
+      "mode",
+      {
+       "servfail": 0.5
+      }
+     ]
+    ]
+   },
+   "truth": {
+    "arp": [
+     93,
+     87
+    ],
+    "discover_per_s": [
+     0.16666666666666666,
+     0.11666666666666667
+    ],
+    "dns_base": {
+     "questions": 66,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 19.0
+    },
+    "dns_win": {
+     "questions": 50,
+     "dropped": 0,
+     "servfail": 24,
+     "delay_median": 21.0
+    }
+   },
+   "worsened": [
+    "dns.failed"
+   ],
+   "changed": [
+    "dns.failed"
+   ],
+   "verdicts": {
+    "dns.time": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dns.answered": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      66,
+      50
+     ]
+    },
+    "dns.failed": {
+     "verdict": "worse",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      24
+     ]
+    },
+    "dhcp.discover": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      7
+     ]
+    },
+    "arp.request": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      99,
+      93
+     ]
+    }
+   }
+  },
+  {
+   "id": "s51",
+   "spec": {
+    "id": "s51",
+    "kind": "fault",
+    "fault": "servfail",
+    "metric": "dns.failed",
+    "onset": 60.0,
+    "art": null,
+    "art_base": null,
+    "dns_rate": 1.0,
+    "busy": 0,
+    "arp_bursty": 1,
+    "events": [
+     [
+      60.0,
+      "mode",
+      {
+       "servfail": 0.5
+      }
+     ]
+    ]
+   },
+   "truth": {
+    "arp": [
+     93,
+     87
+    ],
+    "discover_per_s": [
+     0.16666666666666666,
+     0.11666666666666667
+    ],
+    "dns_base": {
+     "questions": 66,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 19.0
+    },
+    "dns_win": {
+     "questions": 50,
+     "dropped": 0,
+     "servfail": 24,
+     "delay_median": 21.0
+    }
+   },
+   "worsened": [
+    "dns.failed"
+   ],
+   "changed": [
+    "dns.failed"
+   ],
+   "verdicts": {
+    "dns.time": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dns.answered": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      66,
+      50
+     ]
+    },
+    "dns.failed": {
+     "verdict": "worse",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      24
+     ]
+    },
+    "dhcp.discover": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      7
+     ]
+    },
+    "arp.request": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      99,
+      91
+     ]
+    }
+   }
+  },
+  {
+   "id": "s52",
+   "spec": {
+    "id": "s52",
+    "kind": "fault-mid",
+    "fault": "servfail",
+    "metric": "dns.failed",
+    "onset": 89.8,
+    "art": null,
+    "art_base": null,
+    "dns_rate": 1.0,
+    "busy": 0,
+    "arp_bursty": 1,
+    "events": [
+     [
+      89.8,
+      "mode",
+      {
+       "servfail": 0.5
+      }
+     ]
+    ]
+   },
+   "truth": {
+    "arp": [
+     93,
+     87
+    ],
+    "discover_per_s": [
+     0.16666666666666666,
+     0.11666666666666667
+    ],
+    "dns_base": {
+     "questions": 66,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 19.0
+    },
+    "dns_win": {
+     "questions": 50,
+     "dropped": 0,
+     "servfail": 12,
+     "delay_median": 21.0
+    }
+   },
+   "worsened": [],
+   "changed": [
+    "dns.failed"
+   ],
+   "verdicts": {
+    "dns.time": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dns.answered": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      66,
+      50
+     ]
+    },
+    "dns.failed": {
+     "verdict": "worse",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      12
+     ]
+    },
+    "dhcp.discover": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      7
+     ]
+    },
+    "arp.request": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      101,
+      94
+     ]
+    }
+   }
+  },
+  {
+   "id": "s53",
+   "spec": {
+    "id": "s53",
+    "kind": "fault-mid",
+    "fault": "servfail",
+    "metric": "dns.failed",
+    "onset": 81.2,
+    "art": null,
+    "art_base": null,
+    "dns_rate": 1.0,
+    "busy": 0,
+    "arp_bursty": 1,
+    "events": [
+     [
+      81.2,
+      "mode",
+      {
+       "servfail": 0.5
+      }
+     ]
+    ]
+   },
+   "truth": {
+    "arp": [
+     93,
+     87
+    ],
+    "discover_per_s": [
+     0.16666666666666666,
+     0.11666666666666667
+    ],
+    "dns_base": {
+     "questions": 66,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 19.0
+    },
+    "dns_win": {
+     "questions": 50,
+     "dropped": 0,
+     "servfail": 13,
+     "delay_median": 21.0
+    }
+   },
+   "worsened": [],
+   "changed": [
+    "dns.failed"
+   ],
+   "verdicts": {
+    "dns.time": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dns.answered": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      66,
+      50
+     ]
+    },
+    "dns.failed": {
+     "verdict": "worse",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      13
+     ]
+    },
+    "dhcp.discover": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      7
+     ]
+    },
+    "arp.request": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      99,
+      93
+     ]
+    }
+   }
+  },
+  {
+   "id": "s54",
+   "spec": {
+    "id": "s54",
+    "kind": "fault-loss",
+    "fault": "arp_storm",
+    "metric": "arp.request",
+    "onset": 60.0,
+    "art": "loss",
+    "art_base": null,
+    "dns_rate": 1.0,
+    "busy": 1,
+    "arp_bursty": 1,
+    "events": [
+     [
+      60.0,
+      "mode",
+      {
+       "arp_storm": 1.6
+      }
+     ],
+     [
+      103.2,
+      "pause",
+      2.6
+     ]
+    ]
+   },
+   "truth": {
+    "arp": [
+     93,
+     479
+    ],
+    "discover_per_s": [
+     0.16666666666666666,
+     0.11666666666666667
+    ],
+    "dns_base": {
+     "questions": 66,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 19.0
+    },
+    "dns_win": {
+     "questions": 50,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 21.0
+    }
+   },
+   "worsened": [
+    "arp.request"
+   ],
+   "changed": [
+    "arp.request"
+   ],
+   "verdicts": {
+    "dns.time": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      66,
+      47
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dns.answered": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      66,
+      47
+     ],
+     "k": [
+      66,
+      47
+     ]
+    },
+    "dns.failed": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      66,
+      47
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dhcp.discover": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      5
+     ]
+    },
+    "arp.request": {
+     "verdict": "worse",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      103,
+      474
+     ]
+    }
+   }
+  },
+  {
+   "id": "s55",
+   "spec": {
+    "id": "s55",
+    "kind": "fault-loss",
+    "fault": "arp_storm",
+    "metric": "arp.request",
+    "onset": 60.0,
+    "art": "loss",
+    "art_base": null,
+    "dns_rate": 1.0,
+    "busy": 1,
+    "arp_bursty": 1,
+    "events": [
+     [
+      60.0,
+      "mode",
+      {
+       "arp_storm": 1.6
+      }
+     ],
+     [
+      71.8,
+      "pause",
+      3.0
+     ]
+    ]
+   },
+   "truth": {
+    "arp": [
+     93,
+     477
+    ],
+    "discover_per_s": [
+     0.16666666666666666,
+     0.11666666666666667
+    ],
+    "dns_base": {
+     "questions": 66,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 19.0
+    },
+    "dns_win": {
+     "questions": 50,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 21.0
+    }
+   },
+   "worsened": [
+    "arp.request"
+   ],
+   "changed": [
+    "arp.request"
+   ],
+   "verdicts": {
+    "dns.time": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dns.answered": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      66,
+      50
+     ]
+    },
+    "dns.failed": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dhcp.discover": {
+     "verdict": "cant-tell",
+     "reason": "weak",
+     "quality": "insufficient",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      6
+     ]
+    },
+    "arp.request": {
+     "verdict": "worse",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      104,
+      467
+     ]
+    }
+   }
+  },
+  {
+   "id": "s56",
+   "spec": {
+    "id": "s56",
+    "kind": "fault-loss",
+    "fault": "dhcp_trouble",
+    "metric": "dhcp.discover",
+    "onset": 60.0,
+    "art": "loss",
+    "art_base": null,
+    "dns_rate": 1.0,
+    "busy": 1,
+    "arp_bursty": 1,
+    "events": [
+     [
+      60.0,
+      "mode",
+      {
+       "dhcp_answer": 0
+      }
+     ],
+     [
+      97.9,
+      "pause",
+      2.5
+     ]
+    ]
+   },
+   "truth": {
+    "arp": [
+     93,
+     87
+    ],
+    "discover_per_s": [
+     0.16666666666666666,
+     0.38333333333333336
+    ],
+    "dns_base": {
+     "questions": 66,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 19.0
+    },
+    "dns_win": {
+     "questions": 50,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 21.0
+    }
+   },
+   "worsened": [],
+   "changed": [
+    "dhcp.discover"
+   ],
+   "verdicts": {
+    "dns.time": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      66,
+      46
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dns.answered": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      66,
+      46
+     ],
+     "k": [
+      66,
+      46
+     ]
+    },
+    "dns.failed": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      66,
+      46
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dhcp.discover": {
+     "verdict": "cant-tell",
+     "reason": "loss-explains",
+     "quality": "insufficient",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      22
+     ]
+    },
+    "arp.request": {
+     "verdict": "cant-tell",
+     "reason": "loss-explains",
+     "quality": "insufficient",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      102,
+      89
+     ]
+    }
+   }
+  },
+  {
+   "id": "s57",
+   "spec": {
+    "id": "s57",
+    "kind": "fault-loss",
+    "fault": "dhcp_trouble",
+    "metric": "dhcp.discover",
+    "onset": 60.0,
+    "art": "loss",
+    "art_base": null,
+    "dns_rate": 1.0,
+    "busy": 1,
+    "arp_bursty": 1,
+    "events": [
+     [
+      60.0,
+      "mode",
+      {
+       "dhcp_answer": 0
+      }
+     ],
+     [
+      102.7,
+      "pause",
+      2.5
+     ]
+    ]
+   },
+   "truth": {
+    "arp": [
+     93,
+     87
+    ],
+    "discover_per_s": [
+     0.16666666666666666,
+     0.38333333333333336
+    ],
+    "dns_base": {
+     "questions": 66,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 19.0
+    },
+    "dns_win": {
+     "questions": 50,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 21.0
+    }
+   },
+   "worsened": [],
+   "changed": [
+    "dhcp.discover"
+   ],
+   "verdicts": {
+    "dns.time": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      66,
+      48
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dns.answered": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      66,
+      48
+     ],
+     "k": [
+      66,
+      48
+     ]
+    },
+    "dns.failed": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      66,
+      48
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dhcp.discover": {
+     "verdict": "cant-tell",
+     "reason": "loss-explains",
+     "quality": "insufficient",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      20
+     ]
+    },
+    "arp.request": {
+     "verdict": "cant-tell",
+     "reason": "loss-explains",
+     "quality": "insufficient",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      102,
+      88
+     ]
+    }
+   }
+  },
+  {
+   "id": "s58",
+   "spec": {
+    "id": "s58",
+    "kind": "fault-loss",
+    "fault": "dns_down",
+    "metric": "dns.answered",
+    "onset": 60.0,
+    "art": "loss",
+    "art_base": null,
+    "dns_rate": 1.0,
+    "busy": 1,
+    "arp_bursty": 1,
+    "events": [
+     [
+      60.0,
+      "mode",
+      {
+       "drop": 0.9
+      }
+     ],
+     [
+      79.8,
+      "pause",
+      3.1
+     ]
+    ]
+   },
+   "truth": {
+    "arp": [
+     93,
+     87
+    ],
+    "discover_per_s": [
+     0.16666666666666666,
+     0.11666666666666667
+    ],
+    "dns_base": {
+     "questions": 66,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 19.0
+    },
+    "dns_win": {
+     "questions": 50,
+     "dropped": 46,
+     "servfail": 0,
+     "delay_median": 16.5
+    }
+   },
+   "worsened": [
+    "dns.answered"
+   ],
+   "changed": [
+    "dns.answered"
+   ],
+   "verdicts": {
+    "dns.time": {
+     "verdict": "cant-tell",
+     "reason": "too-few",
+     "quality": "insufficient",
+     "n": [
+      66,
+      4
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dns.answered": {
+     "verdict": "worse",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      66,
+      4
+     ]
+    },
+    "dns.failed": {
+     "verdict": "cant-tell",
+     "reason": "too-few",
+     "quality": "insufficient",
+     "n": [
+      66,
+      4
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dhcp.discover": {
+     "verdict": "cant-tell",
+     "reason": "weak",
+     "quality": "insufficient",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      7
+     ]
+    },
+    "arp.request": {
+     "verdict": "cant-tell",
+     "reason": "loss-explains",
+     "quality": "insufficient",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      102,
+      91
+     ]
+    }
+   }
+  },
+  {
+   "id": "s59",
+   "spec": {
+    "id": "s59",
+    "kind": "fault-loss",
+    "fault": "dns_down",
+    "metric": "dns.answered",
+    "onset": 60.0,
+    "art": "loss",
+    "art_base": null,
+    "dns_rate": 1.0,
+    "busy": 1,
+    "arp_bursty": 1,
+    "events": [
+     [
+      60.0,
+      "mode",
+      {
+       "drop": 0.9
+      }
+     ],
+     [
+      90.3,
+      "pause",
+      3.1
+     ]
+    ]
+   },
+   "truth": {
+    "arp": [
+     93,
+     87
+    ],
+    "discover_per_s": [
+     0.16666666666666666,
+     0.11666666666666667
+    ],
+    "dns_base": {
+     "questions": 66,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 19.0
+    },
+    "dns_win": {
+     "questions": 50,
+     "dropped": 46,
+     "servfail": 0,
+     "delay_median": 16.5
+    }
+   },
+   "worsened": [
+    "dns.answered"
+   ],
+   "changed": [
+    "dns.answered"
+   ],
+   "verdicts": {
+    "dns.time": {
+     "verdict": "cant-tell",
+     "reason": "too-few",
+     "quality": "insufficient",
+     "n": [
+      66,
+      4
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dns.answered": {
+     "verdict": "worse",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      66,
+      47
+     ],
+     "k": [
+      66,
+      4
+     ]
+    },
+    "dns.failed": {
+     "verdict": "cant-tell",
+     "reason": "too-few",
+     "quality": "insufficient",
+     "n": [
+      66,
+      4
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dhcp.discover": {
+     "verdict": "cant-tell",
+     "reason": "weak",
+     "quality": "insufficient",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      7
+     ]
+    },
+    "arp.request": {
+     "verdict": "cant-tell",
+     "reason": "loss-explains",
+     "quality": "insufficient",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      103,
+      92
+     ]
+    }
+   }
+  },
+  {
+   "id": "s60",
+   "spec": {
+    "id": "s60",
+    "kind": "fault-loss",
+    "fault": "dns_slow",
+    "metric": "dns.time",
+    "onset": 60.0,
+    "art": "loss",
+    "art_base": null,
+    "dns_rate": 1.0,
+    "busy": 1,
+    "arp_bursty": 1,
+    "events": [
+     [
+      60.0,
+      "mode",
+      {
+       "delay_ms": [
+        120,
+        240
+       ]
+      }
+     ],
+     [
+      80.9,
+      "pause",
+      3.9
+     ]
+    ]
+   },
+   "truth": {
+    "arp": [
+     93,
+     87
+    ],
+    "discover_per_s": [
+     0.16666666666666666,
+     0.11666666666666667
+    ],
+    "dns_base": {
+     "questions": 66,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 19.0
+    },
+    "dns_win": {
+     "questions": 50,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 189.5
+    }
+   },
+   "worsened": [
+    "dns.time"
+   ],
+   "changed": [
+    "dns.time"
+   ],
+   "verdicts": {
+    "dns.time": {
+     "verdict": "worse",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      66,
+      47
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dns.answered": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      66,
+      47
+     ],
+     "k": [
+      66,
+      47
+     ]
+    },
+    "dns.failed": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      66,
+      47
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dhcp.discover": {
+     "verdict": "cant-tell",
+     "reason": "weak",
+     "quality": "insufficient",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      7
+     ]
+    },
+    "arp.request": {
+     "verdict": "cant-tell",
+     "reason": "loss-explains",
+     "quality": "insufficient",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      102,
+      91
+     ]
+    }
+   }
+  },
+  {
+   "id": "s61",
+   "spec": {
+    "id": "s61",
+    "kind": "fault-loss",
+    "fault": "dns_slow",
+    "metric": "dns.time",
+    "onset": 60.0,
+    "art": "loss",
+    "art_base": null,
+    "dns_rate": 1.0,
+    "busy": 1,
+    "arp_bursty": 1,
+    "events": [
+     [
+      60.0,
+      "mode",
+      {
+       "delay_ms": [
+        120,
+        240
+       ]
+      }
+     ],
+     [
+      69.8,
+      "pause",
+      3.8
+     ]
+    ]
+   },
+   "truth": {
+    "arp": [
+     93,
+     87
+    ],
+    "discover_per_s": [
+     0.16666666666666666,
+     0.11666666666666667
+    ],
+    "dns_base": {
+     "questions": 66,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 19.0
+    },
+    "dns_win": {
+     "questions": 50,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 189.5
+    }
+   },
+   "worsened": [
+    "dns.time"
+   ],
+   "changed": [
+    "dns.time"
+   ],
+   "verdicts": {
+    "dns.time": {
+     "verdict": "worse",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      66,
+      43
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dns.answered": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      66,
+      44
+     ],
+     "k": [
+      66,
+      43
+     ]
+    },
+    "dns.failed": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      66,
+      43
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dhcp.discover": {
+     "verdict": "cant-tell",
+     "reason": "weak",
+     "quality": "insufficient",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      7
+     ]
+    },
+    "arp.request": {
+     "verdict": "cant-tell",
+     "reason": "loss-explains",
+     "quality": "insufficient",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      105,
+      97
+     ]
+    }
+   }
+  },
+  {
+   "id": "s62",
+   "spec": {
+    "id": "s62",
+    "kind": "fault-loss",
+    "fault": "servfail",
+    "metric": "dns.failed",
+    "onset": 60.0,
+    "art": "loss",
+    "art_base": null,
+    "dns_rate": 1.0,
+    "busy": 1,
+    "arp_bursty": 1,
+    "events": [
+     [
+      60.0,
+      "mode",
+      {
+       "servfail": 0.5
+      }
+     ],
+     [
+      76.8,
+      "pause",
+      3.7
+     ]
+    ]
+   },
+   "truth": {
+    "arp": [
+     93,
+     87
+    ],
+    "discover_per_s": [
+     0.16666666666666666,
+     0.11666666666666667
+    ],
+    "dns_base": {
+     "questions": 66,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 19.0
+    },
+    "dns_win": {
+     "questions": 50,
+     "dropped": 0,
+     "servfail": 24,
+     "delay_median": 21.0
+    }
+   },
+   "worsened": [
+    "dns.failed"
+   ],
+   "changed": [
+    "dns.failed"
+   ],
+   "verdicts": {
+    "dns.time": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      66,
+      47
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dns.answered": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      66,
+      47
+     ],
+     "k": [
+      66,
+      47
+     ]
+    },
+    "dns.failed": {
+     "verdict": "worse",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      66,
+      47
+     ],
+     "k": [
+      0,
+      22
+     ]
+    },
+    "dhcp.discover": {
+     "verdict": "cant-tell",
+     "reason": "weak",
+     "quality": "insufficient",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      7
+     ]
+    },
+    "arp.request": {
+     "verdict": "cant-tell",
+     "reason": "loss-explains",
+     "quality": "insufficient",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      101,
+      90
+     ]
+    }
+   }
+  },
+  {
+   "id": "s63",
+   "spec": {
+    "id": "s63",
+    "kind": "fault-loss",
+    "fault": "servfail",
+    "metric": "dns.failed",
+    "onset": 60.0,
+    "art": "loss",
+    "art_base": null,
+    "dns_rate": 1.0,
+    "busy": 1,
+    "arp_bursty": 1,
+    "events": [
+     [
+      60.0,
+      "mode",
+      {
+       "servfail": 0.5
+      }
+     ],
+     [
+      72.1,
+      "pause",
+      2.8
+     ]
+    ]
+   },
+   "truth": {
+    "arp": [
+     93,
+     87
+    ],
+    "discover_per_s": [
+     0.16666666666666666,
+     0.11666666666666667
+    ],
+    "dns_base": {
+     "questions": 66,
+     "dropped": 0,
+     "servfail": 0,
+     "delay_median": 19.0
+    },
+    "dns_win": {
+     "questions": 50,
+     "dropped": 0,
+     "servfail": 24,
+     "delay_median": 21.0
+    }
+   },
+   "worsened": [
+    "dns.failed"
+   ],
+   "changed": [
+    "dns.failed"
+   ],
+   "verdicts": {
+    "dns.time": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      66,
+      49
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "dns.answered": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      66,
+      49
+     ],
+     "k": [
+      66,
+      49
+     ]
+    },
+    "dns.failed": {
+     "verdict": "worse",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      66,
+      49
+     ],
+     "k": [
+      0,
+      23
+     ]
+    },
+    "dhcp.discover": {
+     "verdict": "cant-tell",
+     "reason": "weak",
+     "quality": "insufficient",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      6
+     ]
+    },
+    "arp.request": {
+     "verdict": "cant-tell",
+     "reason": "loss-explains",
+     "quality": "insufficient",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      103,
+      93
+     ]
+    }
+   }
+  }
+ ],
+ "false_claims": {
+  "clean": {
+   "k": 0,
+   "n": 10,
+   "rate": 0.0,
+   "upper95": 0.21297179881198092,
+   "which": []
+  },
+  "loss-burst": {
+   "k": 0,
+   "n": 4,
+   "rate": 0.0,
+   "upper95": 0.40352146017946544,
+   "which": []
+  },
+  "hold": {
+   "k": 0,
+   "n": 4,
+   "rate": 0.0,
+   "upper95": 0.40352146017946544,
+   "which": []
+  },
+  "base-artifact": {
+   "k": 0,
+   "n": 4,
+   "rate": 0.0,
+   "upper95": 0.40352146017946544,
+   "which": []
+  },
+  "asymmetric-return": {
+   "k": 4,
+   "n": 4,
+   "rate": 1.0,
+   "upper95": 1.0,
+   "which": [
+    [
+     "s23",
+     [
+      "dns.answered"
+     ]
+    ],
+    [
+     "s24",
+     [
+      "dns.answered"
+     ]
+    ],
+    [
+     "s25",
+     [
+      "dns.answered"
+     ]
+    ],
+    [
+     "s26",
+     [
+      "dns.answered"
+     ]
+    ]
+   ]
+  }
+ },
+ "false_claims_other_metrics_in_fault_windows": {
+  "k": 0,
+  "n": 37,
+  "upper95": 0.06815149590018138,
+  "which": []
+ },
+ "material_faults": {
+  "n": 20,
+  "recall": 20,
+  "recall_lower95": 0.8808234818732034,
+  "abstained": 0,
+  "no_change": 0,
+  "small": 0
+ },
+ "material_faults_under_loss": {
+  "n": 8,
+  "recall": 8,
+  "recall_lower95": 0.7472427908584185
+ },
+ "per_fault": {
+  "arp_storm|mark|clear": {
+   "n": 3,
+   "material": 2,
+   "worse": 2,
+   "cant": 0,
+   "no_change": 0,
+   "small": 0,
+   "reasons": {}
+  },
+  "arp_storm|mid|clear": {
+   "n": 3,
+   "material": 0,
+   "worse": 0,
+   "cant": 0,
+   "no_change": 0,
+   "small": 0,
+   "reasons": {}
+  },
+  "dhcp_trouble|mark|clear": {
+   "n": 3,
+   "material": 0,
+   "worse": 0,
+   "cant": 0,
+   "no_change": 0,
+   "small": 0,
+   "reasons": {}
+  },
+  "dhcp_trouble|mid|clear": {
+   "n": 3,
+   "material": 0,
+   "worse": 0,
+   "cant": 0,
+   "no_change": 0,
+   "small": 0,
+   "reasons": {}
+  },
+  "dns_down|mark|clear": {
+   "n": 3,
+   "material": 3,
+   "worse": 3,
+   "cant": 0,
+   "no_change": 0,
+   "small": 0,
+   "reasons": {}
+  },
+  "dns_down|mid|clear": {
+   "n": 2,
+   "material": 0,
+   "worse": 0,
+   "cant": 0,
+   "no_change": 0,
+   "small": 0,
+   "reasons": {}
+  },
+  "dns_slow|mark|clear": {
+   "n": 3,
+   "material": 3,
+   "worse": 3,
+   "cant": 0,
+   "no_change": 0,
+   "small": 0,
+   "reasons": {}
+  },
+  "dns_slow|mid|clear": {
+   "n": 2,
+   "material": 1,
+   "worse": 1,
+   "cant": 0,
+   "no_change": 0,
+   "small": 0,
+   "reasons": {}
+  },
+  "servfail|mark|clear": {
+   "n": 3,
+   "material": 3,
+   "worse": 3,
+   "cant": 0,
+   "no_change": 0,
+   "small": 0,
+   "reasons": {}
+  },
+  "servfail|mid|clear": {
+   "n": 2,
+   "material": 0,
+   "worse": 0,
+   "cant": 0,
+   "no_change": 0,
+   "small": 0,
+   "reasons": {}
+  },
+  "arp_storm|mark|loss": {
+   "n": 2,
+   "material": 2,
+   "worse": 2,
+   "cant": 0,
+   "no_change": 0,
+   "small": 0,
+   "reasons": {}
+  },
+  "dhcp_trouble|mark|loss": {
+   "n": 2,
+   "material": 0,
+   "worse": 0,
+   "cant": 0,
+   "no_change": 0,
+   "small": 0,
+   "reasons": {}
+  },
+  "dns_down|mark|loss": {
+   "n": 2,
+   "material": 2,
+   "worse": 2,
+   "cant": 0,
+   "no_change": 0,
+   "small": 0,
+   "reasons": {}
+  },
+  "dns_slow|mark|loss": {
+   "n": 2,
+   "material": 2,
+   "worse": 2,
+   "cant": 0,
+   "no_change": 0,
+   "small": 0,
+   "reasons": {}
+  },
+  "servfail|mark|loss": {
+   "n": 2,
+   "material": 2,
+   "worse": 2,
+   "cant": 0,
+   "no_change": 0,
+   "small": 0,
+   "reasons": {}
+  }
+ }
+}
