@@ -125,6 +125,7 @@ int main(void)
 
     check("exit texts", strcmp(psk_exit_text(PSK_EXIT_CRASHED, 139, t, sizeof(t)), "CRASHED (SIG 11)") == 0 &&
                             strcmp(psk_exit_text(PSK_EXIT_CRASHED, 137, t, sizeof(t)), "KILLED (SIG 9)") == 0 &&
+                            strcmp(psk_exit_text(PSK_EXIT_CRASHED, 159, t, sizeof(t)), "FILTERED (SIG 31)") == 0 &&
                             strcmp(psk_exit_text(PSK_EXIT_HUNG, 0, t, sizeof(t)), "NOT RESPONDING") == 0 &&
                             strcmp(psk_exit_text(PSK_EXIT_START, 127, t, sizeof(t)), "HELPER MISSING") == 0 &&
                             strcmp(psk_exit_text(PSK_EXIT_PROTOCOL, 0, t, sizeof(t)), "PROTOCOL ERROR") == 0);

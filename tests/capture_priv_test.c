@@ -268,6 +268,7 @@ static void as_root(void)
 #define S_EXEC 0x20
 #define S_ALLOWED 0x40
 #define S_RESERVE 0x80
+#define S_WORDS 0x100
 
 /* The capture descriptor: a real capture socket as root, a datagram socket
  * standing in for one without. stdout becomes a stream socket, as the
@@ -355,8 +356,24 @@ static int filter_child(const char *unused)
         bad |= S_NEWSOCK;
     }
     if (!refused(dup(capfd)) || !refused(dup3(capfd, 60, 0)) || !refused(fcntl(capfd, F_DUPFD, 0)) ||
-        !refused(fcntl(capfd, F_DUPFD_CLOEXEC, 0)) || !refused(fcntl(capfd, F_SETOWN, getpid()))) {
+        !refused(fcntl(capfd, F_DUPFD_CLOEXEC, 0)) || !refused(fcntl(capfd, F_SETOWN, getpid())) ||
+        !refused(fcntl(capfd, F_SETSIG, SIGUSR1))) {
         bad |= S_COPY;
+    }
+    /* the filter reads the words the kernel uses: a descriptor with high bits
+     * set is still the capture socket; an address above 4 GiB is still an
+     * address; signals go to itself only */
+    {
+        struct flock fl;
+
+        memset(&fl, 0, sizeof(fl));
+        fl.l_type = F_RDLCK;
+        if (!refused(syscall(SYS_write, (long)((1ULL << 32) | (unsigned)capfd), "x", 1L)) ||
+            !refused(syscall(SYS_sendto, 1L, "x", 1L, 0L, (long)(1ULL << 32), 16L)) ||
+            !refused(fcntl(dfd, F_SETLK, &fl)) || !refused(syscall(SYS_tgkill, (long)getppid(), (long)getppid(), 0L)) ||
+            syscall(SYS_tgkill, (long)getpid(), (long)syscall(SYS_gettid), 0L) != 0) {
+            bad |= S_WORDS;
+        }
     }
     m = mmap(NULL, 4096, PROT_READ | PROT_EXEC, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     if (m != MAP_FAILED || errno != EPERM) {
@@ -381,9 +398,10 @@ static int filter_child(const char *unused)
         unlinkat(dfd, "capture-1.pcap", 0) != 0 || !malloc(8 << 20) || getppid() <= 0) {
         bad |= S_ALLOWED;
     }
-    /* STOP: the socket's number stays taken; a save gets another */
+    /* STOP: the socket's number stays taken, also with a free number below
+     * it (the shell's end, made before it); a save gets another */
     v = capfd;
-    if (close(capfd) != 0 || capture_reserve_fd(v) != 0 || fstat(v, &sb) != 0 || !S_ISCHR(sb.st_mode) ||
+    if (shell >= capfd || close(shell) != 0 || close(capfd) != 0 || capture_reserve_fd(v) != 0 || fstat(v, &sb) != 0 || !S_ISCHR(sb.st_mode) ||
         (fd = openat(dfd, "after", O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600)) < 0 || fd == v ||
         write(fd, "x", 1) != 1) {
         bad |= S_RESERVE;
@@ -417,6 +435,22 @@ static int killed_child(const char *which)
 #endif
     } else if (strcmp(which, "kill") == 0) {
         kill(getppid(), 0);
+    } else if (strcmp(which, "sendfile") == 0) {
+        syscall(SYS_sendfile, (long)capfd, 0L, 0L, 1L);
+    } else if (strcmp(which, "splice") == 0) {
+        syscall(SYS_splice, 0L, 0L, (long)capfd, 0L, 1L, 0L);
+    } else if (strcmp(which, "vmsplice") == 0) {
+        syscall(SYS_vmsplice, (long)capfd, 0L, 0L, 0L);
+    } else if (strcmp(which, "pwrite") == 0) {
+        syscall(SYS_pwrite64, (long)capfd, "x", 1L, 0L);
+    } else if (strcmp(which, "io_uring") == 0) {
+        syscall(425L, 1L, 0L); /* io_uring_setup */
+    } else if (strcmp(which, "pidfd_getfd") == 0) {
+        syscall(438L, 0L, (long)capfd, 0L); /* pidfd_getfd */
+    } else if (strcmp(which, "clone") == 0) {
+        syscall(SYS_clone, (long)SIGCHLD, 0L, 0L, 0L, 0L);
+    } else if (strcmp(which, "linkat") == 0) {
+        syscall(SYS_linkat, (long)AT_FDCWD, "/tmp/a", (long)AT_FDCWD, "/tmp/b", 0L);
     }
     return 3; /* still alive */
 }
@@ -482,7 +516,11 @@ static void the_filter(void)
     check("filter: the helper's own calls still work (lines on the shell's socket, SAVE through the folder, "
           "counters, poll, time, memory)",
           !(bits & (S_INSTALL | S_ALLOWED)));
-    check("filter: after STOP the socket's number stays taken; a save gets another", !(bits & (S_INSTALL | S_RESERVE)));
+    check("filter: after STOP the socket's number stays taken, also over a free number below it; a save gets another",
+          !(bits & (S_INSTALL | S_RESERVE)));
+    check("filter: it reads the kernel's words (a descriptor with high bits, an address above 4 GiB); fcntl F_SETSIG "
+          "and F_SETLK refused; tgkill to itself only",
+          !(bits & (S_INSTALL | S_WORDS)));
     r[0] = child_signal("prctl");
     r[1] = child_signal("execve");
     r[2] = child_signal("ptrace");
@@ -495,6 +533,23 @@ static void the_filter(void)
 #if defined(__x86_64__)
     check("filter: the x32 ABI ends the process with SIGSYS", child_signal("x32") == 0);
 #endif
+    {
+        static const char *const more[] = { "sendfile", "splice", "vmsplice", "pwrite", "io_uring", "pidfd_getfd",
+                                            "clone", "linkat" };
+        char got[160] = "";
+        int all = 1;
+        size_t i;
+
+        for (i = 0; i < sizeof(more) / sizeof(more[0]); i++) {
+            int rc = child_signal(more[i]);
+
+            all &= rc == 0;
+            snprintf(got + strlen(got), sizeof(got) - strlen(got), " %s=%d", more[i], rc);
+        }
+        snprintf(what, sizeof(what), "filter: sendfile, splice, vmsplice and pwrite to the socket, io_uring, pidfd_getfd, "
+                 "clone and linkat end the process with SIGSYS (%s )", got);
+        check(what, all);
+    }
     check("filter: a capture socket on a standard descriptor is refused", in_child(standard_fd_child, NULL) == 0);
     check("filter: a forced failure of its last check fails closed", in_child(forced_filter_child, NULL) == 0);
 }

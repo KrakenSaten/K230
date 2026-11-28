@@ -304,7 +304,7 @@ All Doors processes run as root (docs/ARCHITECTURE.md). The capture helper does 
 6. **It installs its system call filter** (amendment 3), for the rest of its life, and proves it (`Seccomp: 2`, a refused `socket()`), reporting `note seccomp filter=2 receive-only=source`. From then on:
    - the capture socket only receives: no write, `sendto`, bind, connect, socket option (no promiscuous membership, no new filter) or `ioctl` on it;
    - no socket is made and no descriptor copied, and no program runs;
-   - any call outside the helper's few ends it at once (SIGSYS).
+   - any call outside the helper's few ends it at once (SIGSYS), which the app reports as `FILTERED (SIG 31)`, not as a crash.
 
    After STOP the socket's number is kept taken, so a save never gets it. A failure refuses the capture as in step 4.
 

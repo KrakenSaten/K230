@@ -289,6 +289,9 @@ static const int allow_plain[] = {
     SYS_poll,
 #endif
     SYS_clock_gettime, SYS_clock_nanosleep, SYS_gettimeofday,
+#ifdef SYS_time
+    SYS_time, /* x86-64's time() without a vDSO; riscv64 has no such call */
+#endif
 #ifdef SYS_nanosleep
     SYS_nanosleep,
 #endif
@@ -296,8 +299,7 @@ static const int allow_plain[] = {
     SYS_getpid, SYS_getppid, SYS_gettid, SYS_getuid, SYS_geteuid, SYS_getgid, SYS_getegid,
     SYS_getresuid, SYS_getresgid,
     /* signals and the end */
-    SYS_rt_sigaction, SYS_rt_sigprocmask, SYS_rt_sigreturn, SYS_restart_syscall, SYS_tgkill,
-    SYS_exit, SYS_exit_group,
+    SYS_rt_sigaction, SYS_rt_sigprocmask, SYS_rt_sigreturn, SYS_restart_syscall, SYS_exit, SYS_exit_group,
     /* memory (never executable: see below) */
     SYS_brk, SYS_munmap, SYS_mremap, SYS_madvise, SYS_futex, SYS_sched_yield,
 #ifdef SYS_getrandom
@@ -322,71 +324,89 @@ static const int deny_quiet[] = {
 #define DENY_N (sizeof(deny_quiet) / sizeof(deny_quiet[0]))
 #define PROG_MAX (2 * (ALLOW_N + DENY_N) + 64) /* two per listed call, the rest below */
 
-/* Build the filter. Returns its length. */
-static unsigned build_filter(struct sock_filter *f, int capture_fd)
+/* One instruction, never past the array: a program that would not fit is
+ * no program (0), and the caller refuses the capture. */
+#define EMIT(ins)                                                                                                 \
+    do {                                                                                                          \
+        if (n >= max) {                                                                                           \
+            return 0;                                                                                             \
+        }                                                                                                         \
+        f[n++] = (struct sock_filter)ins;                                                                         \
+    } while (0)
+
+/* Build the filter into f (max instructions). Returns its length, or 0 if
+ * it does not fit. */
+static unsigned build_filter(struct sock_filter *f, unsigned max, int capture_fd, pid_t self)
 {
     uint32_t cap = (uint32_t)capture_fd; /* -1 (no socket) matches no real descriptor */
     unsigned n = 0;
     unsigned i;
 
     /* Only this architecture's system calls; any other ABI ends it. */
-    f[n++] = (struct sock_filter)F_LD(offsetof(struct seccomp_data, arch));
-    f[n++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, CONFINE_ARCH, 1, 0);
-    f[n++] = (struct sock_filter)F_RET(SECCOMP_RET_KILL_PROCESS);
-    f[n++] = (struct sock_filter)F_LD(offsetof(struct seccomp_data, nr));
+    EMIT(F_LD(offsetof(struct seccomp_data, arch)));
+    EMIT(BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, CONFINE_ARCH, 1, 0));
+    EMIT(F_RET(SECCOMP_RET_KILL_PROCESS));
+    EMIT(F_LD(offsetof(struct seccomp_data, nr)));
 #if defined(__x86_64__)
     /* the x32 ABI shares the architecture value: refuse its numbers */
-    f[n++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JGE | BPF_K, 0x40000000u, 0, 1);
-    f[n++] = (struct sock_filter)F_RET(SECCOMP_RET_KILL_PROCESS);
+    EMIT(BPF_JUMP(BPF_JMP | BPF_JGE | BPF_K, 0x40000000u, 0, 1));
+    EMIT(F_RET(SECCOMP_RET_KILL_PROCESS));
 #endif
     for (i = 0; i < ALLOW_N; i++) {
-        f[n++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, (uint32_t)allow_plain[i], 0, 1);
-        f[n++] = (struct sock_filter)F_RET(SECCOMP_RET_ALLOW);
+        EMIT(BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, (uint32_t)allow_plain[i], 0, 1));
+        EMIT(F_RET(SECCOMP_RET_ALLOW));
     }
     for (i = 0; i < DENY_N; i++) {
-        f[n++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, (uint32_t)deny_quiet[i], 0, 1);
-        f[n++] = (struct sock_filter)F_RET(DENY_EPERM);
+        EMIT(BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, (uint32_t)deny_quiet[i], 0, 1));
+        EMIT(F_RET(DENY_EPERM));
     }
     /* write and writev: anywhere but the capture socket (a write there
      * sends a frame). */
-    f[n++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_write, 1, 0);
-    f[n++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_writev, 0, 4);
-    f[n++] = (struct sock_filter)F_LD(ARG_LO(0));
-    f[n++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, cap, 0, 1);
-    f[n++] = (struct sock_filter)F_RET(DENY_EPERM);
-    f[n++] = (struct sock_filter)F_RET(SECCOMP_RET_ALLOW);
+    EMIT(BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_write, 1, 0));
+    EMIT(BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_writev, 0, 4));
+    EMIT(F_LD(ARG_LO(0)));
+    EMIT(BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, cap, 0, 1));
+    EMIT(F_RET(DENY_EPERM));
+    EMIT(F_RET(SECCOMP_RET_ALLOW));
     /* sendto: the shell's socket only (not the capture socket), and never
      * to an address. */
-    f[n++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_sendto, 0, 8);
-    f[n++] = (struct sock_filter)F_LD(ARG_LO(0));
-    f[n++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, cap, 5, 0);
-    f[n++] = (struct sock_filter)F_LD(ARG_LO(4));
-    f[n++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 0, 0, 3);
-    f[n++] = (struct sock_filter)F_LD(ARG_HI(4));
-    f[n++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 0, 0, 1);
-    f[n++] = (struct sock_filter)F_RET(SECCOMP_RET_ALLOW);
-    f[n++] = (struct sock_filter)F_RET(DENY_EPERM);
+    EMIT(BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_sendto, 0, 8));
+    EMIT(F_LD(ARG_LO(0)));
+    EMIT(BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, cap, 5, 0));
+    EMIT(F_LD(ARG_LO(4)));
+    EMIT(BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 0, 0, 3));
+    EMIT(F_LD(ARG_HI(4)));
+    EMIT(BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 0, 0, 1));
+    EMIT(F_RET(SECCOMP_RET_ALLOW));
+    EMIT(F_RET(DENY_EPERM));
     /* fcntl: flags and close-on-exec only; never a copy of a descriptor. */
-    f[n++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_fcntl, 0, 7);
-    f[n++] = (struct sock_filter)F_LD(ARG_LO(1));
-    f[n++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, F_GETFD, 3, 0);
-    f[n++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, F_SETFD, 2, 0);
-    f[n++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, F_GETFL, 1, 0);
-    f[n++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, F_SETFL, 0, 1);
-    f[n++] = (struct sock_filter)F_RET(SECCOMP_RET_ALLOW);
-    f[n++] = (struct sock_filter)F_RET(DENY_EPERM);
+    EMIT(BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_fcntl, 0, 7));
+    EMIT(F_LD(ARG_LO(1)));
+    EMIT(BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, F_GETFD, 3, 0));
+    EMIT(BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, F_SETFD, 2, 0));
+    EMIT(BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, F_GETFL, 1, 0));
+    EMIT(BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, F_SETFL, 0, 1));
+    EMIT(F_RET(SECCOMP_RET_ALLOW));
+    EMIT(F_RET(DENY_EPERM));
+    /* tgkill: to itself only (abort, raise); never another process of the
+     * same identity, such as the next capture's helper. */
+    EMIT(BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_tgkill, 0, 4));
+    EMIT(F_LD(ARG_LO(0)));
+    EMIT(BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, (uint32_t)self, 0, 1));
+    EMIT(F_RET(SECCOMP_RET_ALLOW));
+    EMIT(F_RET(DENY_EPERM));
     /* ioctl: none (interface flags, addresses, routes); "not a terminal". */
-    f[n++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_ioctl, 0, 1);
-    f[n++] = (struct sock_filter)F_RET(DENY_ENOTTY);
+    EMIT(BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_ioctl, 0, 1));
+    EMIT(F_RET(DENY_ENOTTY));
     /* mmap and mprotect: never executable memory. */
-    f[n++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_mmap, 1, 0);
-    f[n++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_mprotect, 0, 4);
-    f[n++] = (struct sock_filter)F_LD(ARG_LO(2));
-    f[n++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JSET | BPF_K, PROT_EXEC, 0, 1);
-    f[n++] = (struct sock_filter)F_RET(DENY_EPERM);
-    f[n++] = (struct sock_filter)F_RET(SECCOMP_RET_ALLOW);
+    EMIT(BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_mmap, 1, 0));
+    EMIT(BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_mprotect, 0, 4));
+    EMIT(F_LD(ARG_LO(2)));
+    EMIT(BPF_JUMP(BPF_JMP | BPF_JSET | BPF_K, PROT_EXEC, 0, 1));
+    EMIT(F_RET(DENY_EPERM));
+    EMIT(F_RET(SECCOMP_RET_ALLOW));
     /* Anything else ends the helper at once. */
-    f[n++] = (struct sock_filter)F_RET(SECCOMP_RET_KILL_PROCESS);
+    EMIT(F_RET(SECCOMP_RET_KILL_PROCESS));
     return n;
 }
 
@@ -445,10 +465,11 @@ int capture_confine(int capture_fd, struct capture_priv *p)
         return fail(p, "filter: already filtered or unreadable");
     }
     memset(&prog, 0, sizeof(prog));
-    prog.len = (unsigned short)build_filter(f, capture_fd);
+    prog.len = (unsigned short)build_filter(f, PROG_MAX, capture_fd, getpid());
     prog.filter = f;
-    if (prog.len > PROG_MAX) {
-        abort(); /* the program outgrew its array: a build error, never shipped */
+    if (prog.len == 0) {
+        errno = 0;
+        return fail(p, "filter: the program does not fit");
     }
     errno = 0;
     if (syscall(SYS_seccomp, SECCOMP_SET_MODE_FILTER, SECCOMP_FILTER_FLAG_TSYNC, &prog) != 0) {
