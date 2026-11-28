@@ -173,6 +173,40 @@ check "the parent-death signal is set again after the identity change" \
 check "the log keeps its descriptor across the drop" \
     "$(hbody drop_privileges | grep -n 'pocketlog_keep();\|capture_drop(&p)' | cut -d: -f2 | tr '\n' ' ' |
        grep -q 'pocketlog_keep();.*capture_drop(&p)' && echo 1 || echo 0)"
+# The system call filter (amendment 3): the drop's last step, after the
+# parent-death signal and its check; once, from there alone; ends what it
+# does not list, with no logging, tracing or user-notification action that
+# would let a call through; the network side, copies of descriptors,
+# execution and prctl are never in its plain allow list; after STOP the
+# socket's number stays taken.
+cpbody() { sed -n -E "/^(static )?[a-z ]+\*?$1\(/,/^}/p" $P; }
+check "the system call filter is the drop's last step, after the parent-death signal and its check, and fails closed" \
+    "$(hbody drop_privileges | grep -n 'capture_drop(&p)\|prctl(PR_SET_PDEATHSIG, SIGTERM\|getppid() != h->parent\|capture_confine(sfd, &p)\|return 0;' |
+       cut -d: -f2 | tr '\n' ' ' |
+       grep -q 'capture_drop(&p).*prctl(PR_SET_PDEATHSIG, SIGTERM.*getppid() != h->parent.*capture_confine(sfd, &p).*return 0;' &&
+       [ "$(code $H | grep -c 'capture_confine(')" = "1" ] && echo 1 || echo 0)"
+check "the filter checks the architecture, ends whatever it does not list, and has no log, trace, trap or notify action" \
+    "$(cpbody build_filter | grep -q 'offsetof(struct seccomp_data, arch)' &&
+       cpbody build_filter | code /dev/stdin | tail -3 | tr -d '\n ' | grep -q 'F_RET(SECCOMP_RET_KILL_PROCESS);returnn;}' &&
+       ! code $P | grep -qE 'SECCOMP_RET_(LOG|TRACE|TRAP|USER_NOTIF)' && code $P | grep -q 'SECCOMP_FILTER_FLAG_TSYNC' &&
+       echo 1 || echo 0)"
+SY=platforms/k230/rootfs_overlay/etc/sysctl.d/60-doors-links.conf
+check "the image protects hard and symbolic links (fs.protected_hardlinks and fs.protected_symlinks = 1, nothing else)" \
+    "$([ "$(grep -vE '^[[:space:]]*(#|$)' $SY | tr -d ' ')" = "$(printf 'fs.protected_hardlinks=1\nfs.protected_symlinks=1')" ] &&
+       echo 1 || echo 0)"
+check "the leak-scan opt-out exists only in sanitizer builds, and only once the filter is on" \
+    "$([ "$(code $P | grep -c '__lsan_is_turned_off\|confined')" = "$(sed -n '/^#if defined(__SANITIZE_ADDRESS__)$/,/^#endif$/p' $P | code /dev/stdin | grep -c '__lsan_is_turned_off\|confined')" ] &&
+       sed -n '/^#if defined(__SANITIZE_ADDRESS__)$/,/^#endif$/p' $P | grep -q 'confined = 1;' && echo 1 || echo 0)"
+plain=$(sed -n '/^static const int allow_plain\[\] = {$/,/^};$/p' $P | code /dev/stdin)
+check "the plain allow list never names the network side, a descriptor copy, execution, prctl, ptrace or memory protection" \
+    "$([ -n "$plain" ] &&
+       ! echo "$plain" | grep -qwE 'SYS_(socket|socketpair|bind|connect|listen|accept|accept4|setsockopt|sendto|sendmsg|sendmmsg|write|writev|pwrite64|ioctl|dup|dup2|dup3|fcntl|execve|execveat|prctl|ptrace|mmap|mprotect|seccomp|process_vm_writev|splice|sendfile|io_uring_setup)' &&
+       echo 1 || echo 0)"
+check "writes and sendto are refused on the capture socket, sendto to any address; after STOP its number stays taken" \
+    "$(cpbody build_filter | grep -q 'SYS_write, 1, 0' && cpbody build_filter | grep -q 'SYS_sendto, 0, 8' &&
+       cpbody build_filter | grep -q 'F_LD(ARG_LO(4))' &&
+       hbody stop_capture | grep -n 'ppc_source_close(&h->src);\|capture_reserve_fd(h->conf_fd)' | cut -d: -f2 | tr '\n' ' ' |
+       grep -q 'ppc_source_close(&h->src);.*capture_reserve_fd(h->conf_fd)' && echo 1 || echo 0)"
 hits=$(code $H | grep -nE '\b(open|unlink|rename|lstat|statvfs)\(h->save_' )
 check "SAVE writes, renames and removes only through the captures folder's descriptor" \
     "$([ -z "$hits" ] && code $H | grep -q 'openat(h->cap_dirfd, h->save_part' &&

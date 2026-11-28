@@ -178,6 +178,7 @@ struct helper {
     char save_part[PPC_SAVE_NAME + 8]; /* names inside the captures folder (cap_dirfd) */
     char save_path[PPC_SAVE_NAME + 8];
     int cap_dirfd;            /* the captures folder, opened before the privilege drop; -1: none */
+    int conf_fd;              /* the source descriptor the system call filter keeps receive-only; -1: none */
     pid_t parent;             /* the shell that started this helper */
     uint32_t save_next;       /* the next seq to write */
     uint32_t save_last;
@@ -366,11 +367,14 @@ static void emit_bin(void *ctx, uint64_t second, const uint32_t cls[PPC_CLASS_CO
  * keeps working: capabilities and identity are checked when a socket is
  * made, not when it is read. Changing the identity clears the parent-death
  * signal, so it is set again here: the helper still dies with the shell.
+ * Last, the system call filter (amendment 3): from here on the capture
+ * socket only receives, and nothing outside the helper's few calls runs.
  * 0, or -1 with why: the caller refuses the capture (fail closed). */
 static int drop_privileges(struct helper *h, char *why, size_t whylen)
 {
     struct capture_priv p;
     char note[96];
+    int sfd = h->src.ops->fd ? h->src.ops->fd(&h->src) : -1;
 
     pocketlog_keep(); /* the log's descriptor stays; it is never reopened or rotated */
     if (capture_drop(&p) != 0) {
@@ -383,6 +387,12 @@ static int drop_privileges(struct helper *h, char *why, size_t whylen)
         snprintf(why, whylen, "the shell went away");
         return -1;
     }
+    if (capture_confine(sfd, &p) != 0) {
+        snprintf(why, whylen, "%s", p.why);
+        LOG_ERROR("capture: system call filter failed (%s): capture refused", p.why);
+        return -1;
+    }
+    h->conf_fd = sfd;
     snprintf(note, sizeof(note), "dropped bnd=%s", p.cap_bnd == 0 ? "empty" : "kept");
     LOG_INFO("capture: capabilities %s", note);
     say_note(h, "caps", note);
@@ -390,6 +400,9 @@ static int drop_privileges(struct helper *h, char *why, size_t whylen)
              (unsigned)p.euid, (unsigned)p.egid, p.ngroups, p.was_root ? " netns=own" : "");
     LOG_INFO("capture: identity %s", note);
     say_note(h, "identity", note);
+    snprintf(note, sizeof(note), "filter=%d receive-only=%s", p.seccomp_mode, sfd >= 0 ? "source" : "none");
+    LOG_INFO("capture: seccomp %s", note);
+    say_note(h, "seccomp", note);
     return 0;
 }
 
@@ -737,6 +750,11 @@ static void stop_capture(struct helper *h, enum ppc_reason why, const char *deta
         }
         ppc_source_close(&h->src);
         h->src_open = 0;
+        /* The filter refuses writes to the socket's number for good: keep
+         * the number taken, so the save does not get it. */
+        if (capture_reserve_fd(h->conf_fd) != 0) {
+            LOG_WARN("capture: the source's descriptor number could not be held");
+        }
     }
     release_lock(h);
     if (h->state != PPC_STATE_STOPPED && h->state != PPC_STATE_IDLE) {
@@ -888,7 +906,7 @@ static void cmd_start(struct helper *h, const struct ppc_cmd *c)
     {
         const char *drop = getenv("POS_CAPTURE_TEST_DROP_FAIL");
 
-        capture_priv_test_fail(drop && *drop == '1');
+        capture_priv_test_fail(drop && (*drop == '1' || *drop == '2') ? *drop - '0' : 0);
     }
     {
         const char *no = getenv("POS_CAPTURE_TEST_NO_ANALYZER");
@@ -2445,6 +2463,7 @@ static int run_session(const char *source_spec)
     h.lock_fd = -1;
     h.save_fd = -1;
     h.cap_dirfd = -1;
+    h.conf_fd = -1;
     h.parent = getppid();
     h.out_socket = 1;
     h.in_socket = 1;

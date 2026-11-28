@@ -12,12 +12,19 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <grp.h>
+#include <linux/audit.h>
 #include <linux/capability.h>
+#include <linux/filter.h>
+#include <linux/seccomp.h>
+#include <stddef.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sched.h>
+#include <sys/mman.h>
 #include <sys/prctl.h>
+#include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
 #include <unistd.h>
@@ -227,9 +234,288 @@ int capture_drop(struct capture_priv *p)
     }
     errno = 0;
 #if POS_CAPTURE_TEST_HOOKS
-    if (test_fail) {
+    if (test_fail == 1) {
         return fail(p, "test: forced failure");
     }
 #endif
     return 0;
+}
+
+/* ---- the system call filter (ADR-016 rule 17, amendment 3) ---------------------------- */
+
+#if defined(__x86_64__)
+#define CONFINE_ARCH AUDIT_ARCH_X86_64
+#elif defined(__riscv) && __riscv_xlen == 64
+#define CONFINE_ARCH AUDIT_ARCH_RISCV64
+#elif defined(__aarch64__)
+#define CONFINE_ARCH AUDIT_ARCH_AARCH64
+#endif
+
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+#define ARG_LO(i) ((uint32_t)(offsetof(struct seccomp_data, args) + 8 * (i)))
+#define ARG_HI(i) (ARG_LO(i) + 4)
+#else
+#define ARG_LO(i) ((uint32_t)(offsetof(struct seccomp_data, args) + 8 * (i) + 4))
+#define ARG_HI(i) ((uint32_t)(offsetof(struct seccomp_data, args) + 8 * (i)))
+#endif
+
+#define F_LD(off) BPF_STMT(BPF_LD | BPF_W | BPF_ABS, (off))
+#define F_RET(v) BPF_STMT(BPF_RET | BPF_K, (v))
+#define DENY_EPERM (SECCOMP_RET_ERRNO | (EPERM & SECCOMP_RET_DATA))
+#define DENY_ENOTTY (SECCOMP_RET_ERRNO | (ENOTTY & SECCOMP_RET_DATA))
+
+/* What the helper does after the drop, and nothing else: read frames and
+ * commands, write lines, its log and its saves, keep time, manage memory
+ * and end. Each name is the kernel's for both architectures it runs on;
+ * where one has no such call (riscv64: poll, renameat, nanosleep), the C
+ * library uses the other (ppoll, renameat2, clock_nanosleep). */
+static const int allow_plain[] = {
+    /* files: the log, the lock, sysfs readings, SAVE through the folder's
+     * descriptor; reading commands and frames */
+    SYS_read, SYS_readv, SYS_close, SYS_openat, SYS_lseek, SYS_fstat, SYS_newfstatat,
+#ifdef SYS_statx
+    SYS_statx,
+#endif
+    SYS_fstatfs, SYS_unlinkat, SYS_renameat2,
+#ifdef SYS_renameat
+    SYS_renameat,
+#endif
+    SYS_fsync, SYS_fdatasync, SYS_flock,
+    /* the capture socket's counters, the shell's socket */
+    SYS_getsockopt, SYS_recvfrom,
+    /* waiting and time */
+    SYS_ppoll,
+#ifdef SYS_poll
+    SYS_poll,
+#endif
+    SYS_clock_gettime, SYS_clock_nanosleep, SYS_gettimeofday,
+#ifdef SYS_nanosleep
+    SYS_nanosleep,
+#endif
+    /* who it is (read only) */
+    SYS_getpid, SYS_getppid, SYS_gettid, SYS_getuid, SYS_geteuid, SYS_getgid, SYS_getegid,
+    SYS_getresuid, SYS_getresgid,
+    /* signals and the end */
+    SYS_rt_sigaction, SYS_rt_sigprocmask, SYS_rt_sigreturn, SYS_restart_syscall, SYS_tgkill,
+    SYS_exit, SYS_exit_group,
+    /* memory (never executable: see below) */
+    SYS_brk, SYS_munmap, SYS_mremap, SYS_madvise, SYS_futex, SYS_sched_yield,
+#ifdef SYS_getrandom
+    SYS_getrandom,
+#endif
+};
+
+/* Refused with EPERM, not fatal: the network side of a socket the helper
+ * holds (sending, binding, options such as promiscuous membership or a new
+ * filter, the transmit ring) and new descriptors that could copy one.
+ * libpcap's own teardown asks for one of these (it unmaps the ring with
+ * setsockopt before closing); refusing it is harmless, the close frees it. */
+static const int deny_quiet[] = {
+    SYS_socket, SYS_socketpair, SYS_connect, SYS_bind, SYS_listen, SYS_accept, SYS_accept4,
+    SYS_sendmsg, SYS_sendmmsg, SYS_setsockopt, SYS_shutdown, SYS_recvmsg, SYS_dup, SYS_dup3,
+#ifdef SYS_dup2
+    SYS_dup2,
+#endif
+};
+
+#define ALLOW_N (sizeof(allow_plain) / sizeof(allow_plain[0]))
+#define DENY_N (sizeof(deny_quiet) / sizeof(deny_quiet[0]))
+#define PROG_MAX (2 * (ALLOW_N + DENY_N) + 64) /* two per listed call, the rest below */
+
+/* Build the filter. Returns its length. */
+static unsigned build_filter(struct sock_filter *f, int capture_fd)
+{
+    uint32_t cap = (uint32_t)capture_fd; /* -1 (no socket) matches no real descriptor */
+    unsigned n = 0;
+    unsigned i;
+
+    /* Only this architecture's system calls; any other ABI ends it. */
+    f[n++] = (struct sock_filter)F_LD(offsetof(struct seccomp_data, arch));
+    f[n++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, CONFINE_ARCH, 1, 0);
+    f[n++] = (struct sock_filter)F_RET(SECCOMP_RET_KILL_PROCESS);
+    f[n++] = (struct sock_filter)F_LD(offsetof(struct seccomp_data, nr));
+#if defined(__x86_64__)
+    /* the x32 ABI shares the architecture value: refuse its numbers */
+    f[n++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JGE | BPF_K, 0x40000000u, 0, 1);
+    f[n++] = (struct sock_filter)F_RET(SECCOMP_RET_KILL_PROCESS);
+#endif
+    for (i = 0; i < ALLOW_N; i++) {
+        f[n++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, (uint32_t)allow_plain[i], 0, 1);
+        f[n++] = (struct sock_filter)F_RET(SECCOMP_RET_ALLOW);
+    }
+    for (i = 0; i < DENY_N; i++) {
+        f[n++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, (uint32_t)deny_quiet[i], 0, 1);
+        f[n++] = (struct sock_filter)F_RET(DENY_EPERM);
+    }
+    /* write and writev: anywhere but the capture socket (a write there
+     * sends a frame). */
+    f[n++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_write, 1, 0);
+    f[n++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_writev, 0, 4);
+    f[n++] = (struct sock_filter)F_LD(ARG_LO(0));
+    f[n++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, cap, 0, 1);
+    f[n++] = (struct sock_filter)F_RET(DENY_EPERM);
+    f[n++] = (struct sock_filter)F_RET(SECCOMP_RET_ALLOW);
+    /* sendto: the shell's socket only (not the capture socket), and never
+     * to an address. */
+    f[n++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_sendto, 0, 8);
+    f[n++] = (struct sock_filter)F_LD(ARG_LO(0));
+    f[n++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, cap, 5, 0);
+    f[n++] = (struct sock_filter)F_LD(ARG_LO(4));
+    f[n++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 0, 0, 3);
+    f[n++] = (struct sock_filter)F_LD(ARG_HI(4));
+    f[n++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 0, 0, 1);
+    f[n++] = (struct sock_filter)F_RET(SECCOMP_RET_ALLOW);
+    f[n++] = (struct sock_filter)F_RET(DENY_EPERM);
+    /* fcntl: flags and close-on-exec only; never a copy of a descriptor. */
+    f[n++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_fcntl, 0, 7);
+    f[n++] = (struct sock_filter)F_LD(ARG_LO(1));
+    f[n++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, F_GETFD, 3, 0);
+    f[n++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, F_SETFD, 2, 0);
+    f[n++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, F_GETFL, 1, 0);
+    f[n++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, F_SETFL, 0, 1);
+    f[n++] = (struct sock_filter)F_RET(SECCOMP_RET_ALLOW);
+    f[n++] = (struct sock_filter)F_RET(DENY_EPERM);
+    /* ioctl: none (interface flags, addresses, routes); "not a terminal". */
+    f[n++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_ioctl, 0, 1);
+    f[n++] = (struct sock_filter)F_RET(DENY_ENOTTY);
+    /* mmap and mprotect: never executable memory. */
+    f[n++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_mmap, 1, 0);
+    f[n++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_mprotect, 0, 4);
+    f[n++] = (struct sock_filter)F_LD(ARG_LO(2));
+    f[n++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JSET | BPF_K, PROT_EXEC, 0, 1);
+    f[n++] = (struct sock_filter)F_RET(DENY_EPERM);
+    f[n++] = (struct sock_filter)F_RET(SECCOMP_RET_ALLOW);
+    /* Anything else ends the helper at once. */
+    f[n++] = (struct sock_filter)F_RET(SECCOMP_RET_KILL_PROCESS);
+    return n;
+}
+
+#if defined(__SANITIZE_ADDRESS__)
+/* Sanitizer builds only (the shipped helper has no sanitizer): the leak
+ * scan at exit traces the process (prctl, clone, ptrace), which the filter
+ * refuses by design, so a confined sanitizer build skips that scan. Every
+ * other sanitizer check still runs under the filter; a helper that never
+ * confines keeps the scan. */
+static int confined;
+
+int __lsan_is_turned_off(void);
+int __lsan_is_turned_off(void)
+{
+    return confined;
+}
+#endif
+
+static int read_seccomp(int *mode, int *filters)
+{
+    char line[160];
+    FILE *f = fopen("/proc/self/status", "re");
+
+    *mode = -1;
+    *filters = -1;
+    if (!f) {
+        return -1;
+    }
+    while (fgets(line, sizeof(line), f)) {
+        if (sscanf(line, "Seccomp: %d", mode) != 1) {
+            sscanf(line, "Seccomp_filters: %d", filters);
+        }
+    }
+    fclose(f);
+    return *mode < 0 ? -1 : 0;
+}
+
+int capture_confine(int capture_fd, struct capture_priv *p)
+{
+#ifdef CONFINE_ARCH
+    struct sock_filter f[PROG_MAX];
+    struct sock_fprog prog;
+    int mode;
+    int filters;
+    int probe;
+
+    p->why[0] = '\0';
+    errno = 0;
+    if (capture_fd >= 0 && capture_fd <= 2) {
+        /* a standard descriptor must stay writable: the capture socket
+         * cannot be one of them */
+        return fail(p, "filter: the capture socket is a standard descriptor");
+    }
+    if (read_seccomp(&mode, &filters) != 0 || mode != 0) {
+        errno = 0;
+        return fail(p, "filter: already filtered or unreadable");
+    }
+    memset(&prog, 0, sizeof(prog));
+    prog.len = (unsigned short)build_filter(f, capture_fd);
+    prog.filter = f;
+    if (prog.len > PROG_MAX) {
+        abort(); /* the program outgrew its array: a build error, never shipped */
+    }
+    errno = 0;
+    if (syscall(SYS_seccomp, SECCOMP_SET_MODE_FILTER, SECCOMP_FILTER_FLAG_TSYNC, &prog) != 0) {
+        return fail(p, "filter: install");
+    }
+    p->seccomp_fd = capture_fd;
+#if defined(__SANITIZE_ADDRESS__)
+    confined = 1;
+#endif
+    /* Prove it, from /proc and by asking for what it refuses. */
+    errno = 0;
+    if (read_seccomp(&mode, &filters) != 0 || mode != 2 || (filters != -1 && filters != 1)) {
+        errno = 0;
+        return fail(p, "filter check");
+    }
+    p->seccomp_mode = mode;
+    probe = socket(AF_UNIX, SOCK_DGRAM | SOCK_CLOEXEC, 0);
+    if (probe >= 0 || errno != EPERM) {
+        if (probe >= 0) {
+            close(probe);
+        }
+        errno = 0;
+        return fail(p, "filter check: a socket could be made");
+    }
+    errno = 0;
+#if POS_CAPTURE_TEST_HOOKS
+    if (test_fail == 2) {
+        return fail(p, "test: forced filter failure");
+    }
+#endif
+    return 0;
+#else
+    (void)capture_fd;
+    errno = 0;
+    return fail(p, "filter: no filter for this architecture");
+#endif
+}
+
+int capture_reserve_fd(int fd)
+{
+    int held[64];
+    int nheld = 0;
+    int got = -1;
+    int i;
+
+    if (fd < 0) {
+        return 0;
+    }
+    /* open() takes the lowest free number: fill the holes below fd, keep
+     * fd, give the rest back. */
+    while (nheld < (int)(sizeof(held) / sizeof(held[0]))) {
+        int d = open("/dev/null", O_RDONLY | O_CLOEXEC);
+
+        if (d < 0 || d > fd) {
+            if (d >= 0) {
+                close(d);
+            }
+            break;
+        }
+        if (d == fd) {
+            got = d;
+            break;
+        }
+        held[nheld++] = d;
+    }
+    for (i = 0; i < nheld; i++) {
+        close(held[i]);
+    }
+    return got == fd ? 0 : -1;
 }

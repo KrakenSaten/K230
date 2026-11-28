@@ -129,7 +129,8 @@ git archive --format=tar HEAD -- platforms/k230/rootfs_overlay |
     tar -x --strip-components=3 -C "$OVL"
 check "overlay extracted at the rootfs root" $([ -d "$OVL/etc/init.d" ] && echo 1 || echo 0)
 for f in etc/init.d/S50sysd etc/init.d/S55netd etc/init.d/S60radiod etc/init.d/S65meshcored \
-         etc/init.d/S70gatewayd etc/init.d/S90doors-shell etc/default/telnet etc/pocketos/settings.conf logo.xrgb; do
+         etc/init.d/S70gatewayd etc/init.d/S90doors-shell etc/default/telnet etc/pocketos/settings.conf \
+         etc/sysctl.d/60-doors-links.conf logo.xrgb; do
     check "overlay carries $f" $([ -e "$OVL/$f" ] && echo 1 || echo 0)
 done
 # The boot splash. The vendor post-image.sh copies rootfs_overlay/logo.xrgb to

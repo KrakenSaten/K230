@@ -18,7 +18,12 @@
 #   - the helper still dies with its parent: the parent-death signal, which
 #     the identity change clears, is set again;
 #   - a failed privilege reduction fails closed: the capture is refused
-#     with `error privilege`, no frame is counted, the lock is free again.
+#     with `error privilege`, no frame is counted, the lock is free again;
+#   - the system call filter (amendment 3) is on while it captures: the
+#     helper says so and /proc shows Seccomp 2, with or without root; a
+#     forced failure of its check fails closed the same way; live, the
+#     capture socket's counters are still read (the evidence knows its
+#     losses).
 # Without root, the helper has no identity to leave: it says so, captures
 # and saves as before, and the root-only checks are skipped.
 #
@@ -98,6 +103,9 @@ else
     skip "the identity, capability and descriptor checks: run as root"
 fi
 check "capabilities dropped, as before" "$(grep -qP '^note\tcaps\tdropped' "$T/out" && echo 1 || echo 0)"
+check "the system call filter is on: the helper says so, and /proc shows Seccomp 2 while it captures" \
+    "$(grep -qP '^note\tseccomp\tfilter=2 receive-only=source$' "$T/out" && grep -qP '^Seccomp:\t2$' "$st" &&
+       echo 1 || echo 0)"
 printf 'mark\n' >&4
 sleep 0.4
 printf 'evid 7 0\n' >&4
@@ -173,6 +181,14 @@ check "the log says why, without a packet" \
     POCKETOS_CAPTURES_DIR="$SV" "$HELPER" session --source synth:500:1 > "$T/after" 2>&1
 check "the lock is free again: the next capture starts" \
     "$(grep -qP '^state\tcapturing' "$T/after" && echo 1 || echo 0)"
+{ printf 'start synth0 headers 0 all 0\n'; sleep 0.6; printf 'stats\nquit\n'; } 2>/dev/null |
+    POS_CAPTURE_TEST_DROP_FAIL=2 POCKETOS_CAPTURES_DIR="$SV" "$HOOKS" session --source synth:2000:1 \
+        > "$T/ffail" 2>&1
+rc=$?
+check "a failed system call filter refuses the capture the same way (error privilege, exit 3, no frame)" \
+    "$(grep -qP '^error\tprivilege\t' "$T/ffail" && ! grep -qP '^state\tcapturing' "$T/ffail" && [ "$rc" = "3" ] &&
+       ! grep -qP '^stats\t' "$T/ffail" && grep -q 'system call filter failed' "$T/log/pos-capture.log" &&
+       echo 1 || echo 0)"
 
 # ---- the live capture path after the drop (optional) -----------------------------------------
 # POS_CAPTURE_PRIV_LIVE=<interface>, as root, with a helper built with
@@ -189,9 +205,14 @@ if [ "$root" = "1" ] && [ -n "${POS_CAPTURE_PRIV_LIVE:-}" ] && [ "$("$HELPER" ba
     printf 'start %s headers 0 all 0\n' "$IF" >&6
     for _ in $(seq 1 50); do grep -qP '^state\tcapturing' "$T/live" && break; sleep 0.1; done
     flags0=$(cat "/sys/class/net/$IF/flags")
+    lsec=$(grep -P '^Seccomp:' "/proc/$LPID/status" | cut -f2)
     ping -c 3 -W 1 "$(ip -4 route | awk '/default/ { print $3; exit }')" > /dev/null 2>&1
     sleep 2
     flags1=$(cat "/sys/class/net/$IF/flags")
+    printf 'mark\n' >&6
+    sleep 0.6
+    printf 'evid 9 0\n' >&6
+    sleep 0.4
     printf 'stop\n' >&6
     sleep 0.5
     printf 'save\n' >&6
@@ -205,6 +226,9 @@ if [ "$root" = "1" ] && [ -n "${POS_CAPTURE_PRIV_LIVE:-}" ] && [ "$("$HELPER" ba
            [ "${seen:-0}" -gt 0 ] && echo 1 || echo 0)"
     check "live: promiscuous mode was never set on $IF (flags $flags0, $flags1)" \
         "$(( (flags0 & 0x100) == 0 && (flags1 & 0x100) == 0 ))"
+    check "live: the filter is on (Seccomp $lsec) and the socket's drop counters are read (the evidence knows its losses)" \
+        "$([ "$lsec" = "2" ] && grep -qP '^ev\.begin\t9\t.*\t0\t-\t-$' "$T/live" &&
+           ! grep -P '^ev\.win\t' "$T/live" | grep -qvP '\t-$' && echo 1 || echo 0)"
     lname=$(grep -P '^saved\tdone\t' "$T/live" | head -1 | cut -f6)
     check "live: the capture is saved as pos-capture and reads back ($lname)" \
         "$([ -n "$lname" ] && [ "$(stat -c %u "$SV/$lname")" = "$ID" ] &&

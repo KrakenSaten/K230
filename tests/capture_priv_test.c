@@ -14,6 +14,19 @@
  *     already in it stay root's;
  *   - a folder that is a link, not a folder, or someone else's is refused;
  *   - a forced failure of the last check fails closed.
+ * As root and without (amendment 3), the system call filter:
+ *   - installs and reads back (Seccomp 2), refusing a socket;
+ *   - keeps the capture socket (a real AF_PACKET socket as root) receive-
+ *     only: no write, writev or sendto; no promiscuous membership, filter,
+ *     bind or connect; no copy by dup, dup3 or fcntl; no ioctl;
+ *   - refuses new sockets, sendmsg and executable memory;
+ *   - leaves the helper what it does: reading, writing its files and lines
+ *     on the shell's socket, SAVE through a folder descriptor, counters,
+ *     time, memory;
+ *   - ends the process on anything else (prctl, execve, ptrace, kill, the
+ *     x32 ABI): killed by SIGSYS;
+ *   - refuses a capture socket on a standard descriptor, fails closed on a
+ *     forced failure, and the socket's number stays taken after STOP.
  * Without root: the helper leaves nothing to switch, still drops and
  * checks, and the folder rules that need no root hold.
  *
@@ -26,8 +39,21 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <arpa/inet.h>
+#include <linux/filter.h>
 #include <linux/if_ether.h>
+#include <linux/if_packet.h>
+#include <net/if.h>
 #include <netinet/in.h>
+#include <poll.h>
+#include <signal.h>
+#include <sys/ioctl.h>
+#include <sys/mman.h>
+#include <sys/prctl.h>
+#include <sys/ptrace.h>
+#include <sys/statvfs.h>
+#include <sys/syscall.h>
+#include <sys/uio.h>
+#include <time.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -232,6 +258,247 @@ static void as_root(void)
     check("a captures folder that is a link is refused", in_child(refused_dir_child, "Captures-link") == 0);
 }
 
+/* ---- the system call filter (as root and without) ------------------------------------------ */
+
+#define S_INSTALL 0x01
+#define S_SEND 0x02
+#define S_SOCKOPT 0x04
+#define S_NEWSOCK 0x08
+#define S_COPY 0x10
+#define S_EXEC 0x20
+#define S_ALLOWED 0x40
+#define S_RESERVE 0x80
+
+/* The capture descriptor: a real capture socket as root, a datagram socket
+ * standing in for one without. stdout becomes a stream socket, as the
+ * shell's is on the unit. */
+static int filter_setup(int *capfd, int *shell)
+{
+    int sv[2];
+
+    if (socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, sv) != 0 || dup2(sv[1], STDOUT_FILENO) < 0) {
+        return -1;
+    }
+    close(sv[1]);
+    *shell = sv[0];
+    *capfd = geteuid() == 0 ? socket(AF_PACKET, SOCK_RAW | SOCK_CLOEXEC, htons(ETH_P_ALL))
+                            : socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
+    return *capfd > 2 ? 0 : -1;
+}
+
+static int refused(long rc)
+{
+    return rc == -1 && errno == EPERM;
+}
+
+static int filter_child(const char *unused)
+{
+    struct capture_priv p;
+    struct packet_mreq mr;
+    struct sock_filter all = BPF_STMT(BPF_RET | BPF_K, 0xffff);
+    struct sock_fprog fp = { 1, &all };
+    struct sockaddr_ll ll;
+    struct ifreq ifr;
+    struct iovec iov = { (void *)"x", 1 };
+    struct msghdr mh;
+    struct statvfs vfs;
+    struct timespec ts;
+    struct stat sb;
+    struct pollfd pf;
+    char path[640];
+    char buf[8];
+    int sv[2];
+    int bad = 0;
+    int capfd;
+    int shell;
+    int dfd;
+    int fd;
+    int v = 0;
+    socklen_t vl = sizeof(v);
+    void *m;
+
+    (void)unused;
+    path_of(path, sizeof(path), "f-captures");
+    dfd = capture_captures_dir(path);
+    if (dfd < 0 || filter_setup(&capfd, &shell) != 0 || capture_drop(&p) != 0 || capture_confine(capfd, &p) != 0 ||
+        p.seccomp_mode != 2 || p.seccomp_fd != capfd) {
+        return S_INSTALL;
+    }
+    /* receive-only */
+    memset(&ll, 0, sizeof(ll));
+    ll.sll_family = AF_PACKET;
+    ll.sll_ifindex = 1;
+    ll.sll_halen = 6;
+    if (!refused(write(capfd, "x", 1)) || !refused(writev(capfd, &iov, 1)) ||
+        !refused(sendto(capfd, "x", 1, 0, NULL, 0)) ||
+        !refused(sendto(capfd, "x", 1, 0, (struct sockaddr *)&ll, sizeof(ll)))) {
+        bad |= S_SEND;
+    }
+    memset(&mr, 0, sizeof(mr));
+    mr.mr_ifindex = 1;
+    mr.mr_type = PACKET_MR_PROMISC;
+    memset(&ifr, 0, sizeof(ifr));
+    snprintf(ifr.ifr_name, sizeof(ifr.ifr_name), "lo");
+    if (!refused(setsockopt(capfd, SOL_PACKET, PACKET_ADD_MEMBERSHIP, &mr, sizeof(mr))) ||
+        !refused(setsockopt(capfd, SOL_SOCKET, SO_ATTACH_FILTER, &fp, sizeof(fp))) ||
+        !refused(setsockopt(capfd, SOL_SOCKET, SO_DETACH_FILTER, &v, sizeof(v))) ||
+        !refused(bind(capfd, (struct sockaddr *)&ll, sizeof(ll))) ||
+        !refused(connect(capfd, (struct sockaddr *)&ll, sizeof(ll))) ||
+        ioctl(capfd, SIOCGIFFLAGS, &ifr) != -1 || ioctl(capfd, SIOCSIFFLAGS, &ifr) != -1) {
+        bad |= S_SOCKOPT;
+    }
+    memset(&mh, 0, sizeof(mh));
+    mh.msg_iov = &iov;
+    mh.msg_iovlen = 1;
+    if (!refused(socket(AF_INET, SOCK_DGRAM, 0)) || !refused(socket(AF_PACKET, SOCK_RAW, 0)) ||
+        !refused(socketpair(AF_UNIX, SOCK_STREAM, 0, sv)) || !refused(sendmsg(STDOUT_FILENO, &mh, MSG_DONTWAIT))) {
+        bad |= S_NEWSOCK;
+    }
+    if (!refused(dup(capfd)) || !refused(dup3(capfd, 60, 0)) || !refused(fcntl(capfd, F_DUPFD, 0)) ||
+        !refused(fcntl(capfd, F_DUPFD_CLOEXEC, 0)) || !refused(fcntl(capfd, F_SETOWN, getpid()))) {
+        bad |= S_COPY;
+    }
+    m = mmap(NULL, 4096, PROT_READ | PROT_EXEC, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (m != MAP_FAILED || errno != EPERM) {
+        bad |= S_EXEC;
+    }
+    m = mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (m == MAP_FAILED || !refused(mprotect(m, 4096, PROT_READ | PROT_EXEC))) {
+        bad |= S_EXEC;
+    }
+    /* what the helper does */
+    pf.fd = capfd;
+    pf.events = POLLIN;
+    fd = openat(dfd, ".capture-1.pcap.part", O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0600);
+    if (m == MAP_FAILED || mprotect(m, 4096, PROT_READ) != 0 || munmap(m, 4096) != 0 ||
+        send(STDOUT_FILENO, "line\n", 5, MSG_DONTWAIT | MSG_NOSIGNAL) != 5 || write(STDOUT_FILENO, "w\n", 2) != 2 ||
+        write(shell, "cmd\n", 4) != 4 || recv(STDOUT_FILENO, buf, sizeof(buf), MSG_DONTWAIT) != 4 ||
+        getsockopt(capfd, SOL_SOCKET, SO_TYPE, &v, &vl) != 0 || poll(&pf, 1, 0) < 0 ||
+        fcntl(capfd, F_GETFL) < 0 || fcntl(capfd, F_SETFL, O_NONBLOCK) != 0 ||
+        clock_gettime(CLOCK_MONOTONIC, &ts) != 0 || fd < 0 || write(fd, "x", 1) != 1 || fsync(fd) != 0 ||
+        close(fd) != 0 || renameat(dfd, ".capture-1.pcap.part", dfd, "capture-1.pcap") != 0 ||
+        fstatat(dfd, "capture-1.pcap", &sb, AT_SYMLINK_NOFOLLOW) != 0 || fstatvfs(dfd, &vfs) != 0 ||
+        unlinkat(dfd, "capture-1.pcap", 0) != 0 || !malloc(8 << 20) || getppid() <= 0) {
+        bad |= S_ALLOWED;
+    }
+    /* STOP: the socket's number stays taken; a save gets another */
+    v = capfd;
+    if (close(capfd) != 0 || capture_reserve_fd(v) != 0 || fstat(v, &sb) != 0 || !S_ISCHR(sb.st_mode) ||
+        (fd = openat(dfd, "after", O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600)) < 0 || fd == v ||
+        write(fd, "x", 1) != 1) {
+        bad |= S_RESERVE;
+    }
+    return bad;
+}
+
+/* After the filter, a call it does not allow ends the process (SIGSYS). */
+static int killed_child(const char *which)
+{
+    struct capture_priv p;
+    int capfd;
+    int shell;
+
+    if (filter_setup(&capfd, &shell) != 0 || capture_drop(&p) != 0 || capture_confine(capfd, &p) != 0) {
+        return 1;
+    }
+    if (strcmp(which, "prctl") == 0) {
+        prctl(PR_SET_DUMPABLE, 1, 0, 0, 0);
+    } else if (strcmp(which, "execve") == 0) {
+        char *argv[] = { (char *)"/bin/true", NULL };
+
+        execve("/bin/true", argv, argv + 1);
+    } else if (strcmp(which, "ptrace") == 0) {
+        ptrace(PTRACE_TRACEME, 0, NULL, NULL);
+    } else if (strcmp(which, "x32") == 0) {
+#if defined(__x86_64__)
+        syscall(0x40000000L | SYS_getpid);
+#else
+        return 2; /* no second ABI to try */
+#endif
+    } else if (strcmp(which, "kill") == 0) {
+        kill(getppid(), 0);
+    }
+    return 3; /* still alive */
+}
+
+/* 0 when the child was killed by SIGSYS; its exit code + 1 otherwise. */
+static int child_signal(const char *which)
+{
+    int status = 0;
+    pid_t pid = fork();
+
+    if (pid == 0) {
+        _exit(killed_child(which));
+    }
+    if (pid < 0 || waitpid(pid, &status, 0) != pid) {
+        return 0xff;
+    }
+    if (WIFSIGNALED(status)) {
+        return WTERMSIG(status) == SIGSYS ? 0 : 0x80 | WTERMSIG(status);
+    }
+    return WEXITSTATUS(status) + 1;
+}
+
+static int standard_fd_child(const char *unused)
+{
+    struct capture_priv p;
+
+    (void)unused;
+    return capture_drop(&p) == 0 && capture_confine(STDOUT_FILENO, &p) == -1 && strstr(p.why, "standard") ? 0 : 1;
+}
+
+static int forced_filter_child(const char *unused)
+{
+    struct capture_priv p;
+    int capfd;
+    int shell;
+
+    (void)unused;
+    capture_priv_test_fail(2);
+    return filter_setup(&capfd, &shell) == 0 && capture_drop(&p) == 0 && capture_confine(capfd, &p) == -1 &&
+                   strstr(p.why, "forced")
+               ? 0
+               : 1;
+}
+
+static void the_filter(void)
+{
+    const char *who = geteuid() == 0 ? "as root, a real capture socket" : "without root, a stand-in socket";
+    char what[220];
+    int bits = in_child(filter_child, NULL);
+    int r[4];
+
+    snprintf(what, sizeof(what), "filter (%s): installs after the drop, reads back as Seccomp 2 (bits %#x)", who,
+             (unsigned)bits);
+    check(what, !(bits & S_INSTALL));
+    check("filter: the capture socket only receives (write, writev, sendto with or without an address refused)",
+          !(bits & (S_INSTALL | S_SEND)));
+    check("filter: no promiscuous membership, filter change, bind, connect or ioctl on it",
+          !(bits & (S_INSTALL | S_SOCKOPT)));
+    check("filter: no new socket, no socket pair, no sendmsg", !(bits & (S_INSTALL | S_NEWSOCK)));
+    check("filter: no copy of a descriptor (dup, dup3, fcntl F_DUPFD, F_DUPFD_CLOEXEC, F_SETOWN)",
+          !(bits & (S_INSTALL | S_COPY)));
+    check("filter: no executable memory (mmap, mprotect)", !(bits & (S_INSTALL | S_EXEC)));
+    check("filter: the helper's own calls still work (lines on the shell's socket, SAVE through the folder, "
+          "counters, poll, time, memory)",
+          !(bits & (S_INSTALL | S_ALLOWED)));
+    check("filter: after STOP the socket's number stays taken; a save gets another", !(bits & (S_INSTALL | S_RESERVE)));
+    r[0] = child_signal("prctl");
+    r[1] = child_signal("execve");
+    r[2] = child_signal("ptrace");
+    r[3] = child_signal("kill");
+    snprintf(what, sizeof(what),
+             "filter: a call it does not allow ends the process with SIGSYS: prctl (%d), execve (%d), ptrace (%d), "
+             "kill (%d)",
+             r[0], r[1], r[2], r[3]);
+    check(what, r[0] == 0 && r[1] == 0 && r[2] == 0 && r[3] == 0);
+#if defined(__x86_64__)
+    check("filter: the x32 ABI ends the process with SIGSYS", child_signal("x32") == 0);
+#endif
+    check("filter: a capture socket on a standard descriptor is refused", in_child(standard_fd_child, NULL) == 0);
+    check("filter: a forced failure of its last check fails closed", in_child(forced_filter_child, NULL) == 0);
+}
+
 /* ---- without root -------------------------------------------------------------------------- */
 
 static int user_child(const char *unused)
@@ -287,6 +554,7 @@ int main(void)
         return 2;
     }
     as_user();
+    the_filter();
     if (geteuid() == 0) {
         as_root();
     } else {

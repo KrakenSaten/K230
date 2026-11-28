@@ -35,6 +35,8 @@ struct capture_priv {
     unsigned long long cap_inh, cap_prm, cap_eff, cap_bnd, cap_amb;
     int no_new_privs;
     unsigned long net_before, net_after; /* network namespace inodes; differ when it got its own */
+    int seccomp_mode;     /* /proc's Seccomp after capture_confine(): 2 = filtered */
+    int seccomp_fd;       /* the descriptor the filter keeps receive-only */
     char why[96];         /* the first step or check that failed; "" when none */
 };
 
@@ -58,10 +60,34 @@ int capture_captures_dir(const char *dir);
  * saying which. A caller must refuse the capture on -1. */
 int capture_drop(struct capture_priv *out);
 
+/* The last step, after capture_drop() and once the helper holds every
+ * descriptor it will use (ADR-016 rule 17, amendment 3): a system call
+ * filter, for this process for good. It allows what the helper does from
+ * here on (reading frames and commands, writing lines, its log and its
+ * saves, time, memory, the end) and nothing else:
+ *   - capture_fd is receive-only: no write, writev or sendto on it;
+ *   - no socket is made, bound, connected or set (no promiscuous
+ *     membership, filter or transmit ring), no message sent with sendmsg;
+ *   - no descriptor copied (dup, dup3, fcntl F_DUPFD), no ioctl;
+ *   - no executable memory mapped;
+ *   - any other system call, or another ABI's, ends the helper (killed by
+ *     the kernel, which logs it).
+ * capture_fd is the open capture socket (-1 without one); it must not be a
+ * standard descriptor. Proved from /proc (Seccomp 2) and by a refused
+ * socket(). 0, or -1 with p->why: the caller must refuse the capture. */
+int capture_confine(int capture_fd, struct capture_priv *p);
+
+/* After the capture socket is closed (STOP), keep its number taken by a
+ * read-only /dev/null, so no file opened later (a save) gets the number the
+ * filter refuses writes to. 0 when fd is held (or fd < 0); -1 otherwise
+ * (a save may then fail; it never reaches a socket). */
+int capture_reserve_fd(int fd);
+
 #if POS_CAPTURE_TEST_HOOKS
-/* Test builds only: capture_drop() fails its last check, as a kernel that
- * did not apply a step would make it (tests/capture_priv_test.c,
- * tests/pos_capture_priv_test.sh). The shipped helper has no such switch. */
+/* Test builds only: 1 makes capture_drop() fail its last check, 2 makes
+ * capture_confine() fail its last check, as a kernel that did not apply a
+ * step would (tests/capture_priv_test.c, tests/pos_capture_priv_test.sh).
+ * The shipped helper has no such switch. */
 void capture_priv_test_fail(int on);
 #endif
 
