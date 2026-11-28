@@ -401,7 +401,8 @@ static int filter_child(const char *unused)
     /* STOP: the socket's number stays taken, also with a free number below
      * it (the shell's end, made before it); a save gets another */
     v = capfd;
-    if (shell >= capfd || close(shell) != 0 || close(capfd) != 0 || capture_reserve_fd(v) != 0 || fstat(v, &sb) != 0 || !S_ISCHR(sb.st_mode) ||
+    if (shell >= capfd || close(shell) != 0 || close(capfd) != 0 || capture_reserve_fd(v) != 0 ||
+        fstat(v, &sb) != 0 || !S_ISDIR(sb.st_mode) ||
         (fd = openat(dfd, "after", O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600)) < 0 || fd == v ||
         write(fd, "x", 1) != 1) {
         bad |= S_RESERVE;

@@ -521,7 +521,9 @@ int capture_reserve_fd(int fd)
     /* open() takes the lowest free number: fill the holes below fd, keep
      * fd, give the rest back. */
     while (nheld < (int)(sizeof(held) / sizeof(held[0]))) {
-        int d = open("/dev/null", O_RDONLY | O_CLOEXEC);
+        /* the root folder, read only: any identity may open it (on the
+         * image /dev/null is root's 0660), and nothing is written through it */
+        int d = open("/", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
 
         if (d < 0 || d > fd) {
             if (d >= 0) {

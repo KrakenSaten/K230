@@ -78,7 +78,7 @@ int capture_drop(struct capture_priv *out);
 int capture_confine(int capture_fd, struct capture_priv *p);
 
 /* After the capture socket is closed (STOP), keep its number taken by a
- * read-only /dev/null, so no file opened later (a save) gets the number the
+ * read-only descriptor of the root folder, so no file opened later (a save) gets the number the
  * filter refuses writes to. 0 when fd is held (or fd < 0); -1 otherwise
  * (a save may then fail; it never reaches a socket). */
 int capture_reserve_fd(int fd);
