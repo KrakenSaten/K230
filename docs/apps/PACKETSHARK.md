@@ -333,7 +333,12 @@ The image sets `fs.protected_hardlinks` and `fs.protected_symlinks` to 1 (`/etc/
 - The identity change, VERIFIED on the host as root (`make packetshark-priv-test` under `wsl -u root`): uid and gid 65532, no groups, no capabilities, `no_new_privs`, not dumpable; its own network namespace; root's files and a root-owned 0660 device node refused; no raw socket; uid 0 refused; no inherited descriptor left, including one above 1023; SAVE into the prepared folder; a folder that is not a `Captures` folder refused; the helper dying with its parent; a forced failure refusing the capture and ending the helper.
 - A live capture on the host's `eth0` with a libpcap build (`POS_CAPTURE_PRIV_LIVE=eth0`): frames read after the change, promiscuous mode never set, the capture saved as `pos-capture`. Under the filter: `Seccomp: 2`, and the drop counters still read (the evidence knows its losses).
 - The filter, VERIFIED on the host as root and without (`tests/capture_priv_test.c`): on a real AF_PACKET socket, sending, binding, connecting, promiscuous membership, filter changes and `ioctl` are refused; so are new sockets, `sendmsg`, descriptor copies and executable memory. `prctl`, `execve`, `ptrace`, `kill` and the x32 ABI end the process with SIGSYS. Every PacketShark helper test runs under it. The riscv64 build's call numbers match the target glibc (VERIFIED by disassembly).
-- **Not yet run on a unit.**
+- **On Unit A (28 November 2026)**, VERIFIED, with the build installed for the run and then restored exactly:
+  - The filter test on the image's kernel: refused calls are refused, other calls end the process, and the kernel logs each kill.
+  - Ethernet and Wi-Fi with a physical START: `/proc` shows uid and gid 65532, no capabilities, `Seccomp: 2` and a network namespace of its own. Promiscuous mode is never set, and the drop counters read.
+  - MARK, its evidence, HOLD, RESUME, STOP (also through the Companion methods), SAVE as the identity's 0600, and an earlier root capture left as it was. Leaving the app leaves no helper.
+  - The link settings apply through `S02sysctl`.
+  - Not verified on the unit: deleting a saved capture from the app (host-tested).
 
 Promiscuous mode is not offered in this version. The helper accepts the flag (libpcap sets it by socket membership, which the kernel reverts when the socket closes, DOCUMENTED, packet(7)), but the app shows OFF and takes no tap on the row until the reversion is verified on the hardware.
 

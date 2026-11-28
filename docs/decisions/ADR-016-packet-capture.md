@@ -154,7 +154,7 @@ Classes as in `AGENTS.md`. The hardware results of M0 to M3 are in `docs/apps/PA
   - a failed reduction refusing the capture, processing no frame and ending the helper;
   - on a real AF_PACKET socket: frames read after the change, promiscuous mode never set, the capture saved.
 
-  Not yet run on a unit. `CONFIG_NET_NS` is set in the image's kernel build (VERIFIED in the build configuration).
+  `CONFIG_NET_NS` is set in the image's kernel build (VERIFIED in the build configuration). On Unit A: see below.
 - An independent security review of amendment 2 (28 November 2026) found no P0. Its findings were addressed: the risk wording corrected; the network namespace, the folder hand-over rule, every inherited descriptor closed and the helper ending after a failed reduction added; links and second names kept out of the app's list. Its two recommendations, the image's `fs.protected_*` settings and a seccomp filter, are amendment 3.
 - The system call filter of amendment 3, VERIFIED on the host (WSL Ubuntu 22.04, x86-64; `tests/capture_priv_test.c` and `tests/pos_capture_priv_test.sh`, as root and without):
   - it installs and reads back as `Seccomp: 2`;
@@ -164,7 +164,14 @@ Classes as in `AGENTS.md`. The hardware results of M0 to M3 are in `docs/apps/PA
   - after STOP a save never gets the socket's number;
   - every PacketShark helper test runs under it (`make packetshark-test`), and a live capture on `eth0` reads frames and its drop counters under it.
 
-  The riscv64 build's call numbers match the target glibc 2.33 (VERIFIED by disassembly: `send` uses `sendto` 206, `recv` `recvfrom` 207, `poll` `ppoll` 73, `renameat` `renameat2` 276, `fstat` and `fstatat` `newfstatat` 79). Not yet run on a unit.
+  The riscv64 build's call numbers match the target glibc 2.33 (VERIFIED by disassembly: `send` uses `sendto` 206, `recv` `recvfrom` 207, `poll` `ppoll` 73, `renameat` `renameat2` 276, `fstat` and `fstatat` `newfstatat` 79).
+- Amendments 2 and 3 on Unit A (28 November 2026; pos-capture 7c6d848f, the shell a73f2083; installed for the run, then restored exactly), VERIFIED:
+  - The filter test as root on a real AF_PACKET socket, on the image's kernel 6.6.36 (riscv64, glibc 2.33): every refused call refused; prctl, execve, ptrace, kill, sendfile, splice, vmsplice, pwrite64, io_uring_setup and pidfd_getfd end the process. The kernel logs each kill (`audit: type=1326 … sig=31 arch=c00000f3`).
+  - Physical START on Ethernet and Wi-Fi, read from `/proc` while capturing: uid and gid 65532 in every slot, no groups, every capability set empty, `NoNewPrivs: 1`, `Seccomp: 2` with one filter. The helper has its own network namespace, is not dumpable, and holds only its own descriptors. Promiscuous mode is never set; frames are counted and the drop counters read.
+  - MARK and its evidence (losses known), HOLD and RESUME and STOP through the Companion methods, SAVE: the file is the identity's 0600 in its 0700 folder. An earlier root-owned capture is left as it was. Leaving the app mid-capture leaves no helper. No filter kill occurred in use.
+  - The image's link settings, through `/etc/init.d/S02sysctl` from `/etc/sysctl.d`, read back 1 and 1.
+  - The first on-device run found that the image's `/dev/null` is root's 0660. The socket's number after STOP is therefore held with a read-only `/`.
+  - Not verified on the unit: deleting the earlier capture from the app (host-tested), a cable pull, and promiscuous mode (not offered).
 - Helper lifecycle (spawn, watchdog, abandon, crash and kill reported): VERIFIED on the host for `pos-capture` (tests/psk_session_test.c, tests/packetshark_app_test.c) and on Unit A (open, START, STOP, LEAVE, `kill -9`, ten cycles with no helper left).
 - The screen held awake while PacketShark is in front, and only then: VERIFIED on Unit A (`shell.info` power.held).
 - Lint for receive-only, one libpcap include, a capture file written only by SAVE (new, 0600, never followed), saved captures never opened by the shell, no log line from a packet: `tests/packetshark_lint.sh`.
