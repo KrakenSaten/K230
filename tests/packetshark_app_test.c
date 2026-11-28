@@ -4114,6 +4114,175 @@ static bool show_answer(const struct ppc_evt_ev_head *head, const struct ppc_evt
     return true;
 }
 
+/* A protocol 7 answer (N1.2) as the helper sent it, line by line, put into
+ * the model for its pair, and the mark's page painted. The capture is
+ * stopped, so nothing newer is asked for: the request number is taken as
+ * the newest. */
+static bool show_insight(const char *const *lines, unsigned n)
+{
+    struct psk_app *a = app();
+    struct ppc_evt e;
+    unsigned changed = 0;
+    unsigned i;
+
+    for (i = 0; i < n; i++) {
+        enum ppc_evt_kind k = ppc_evt_parse(lines[i], &e);
+
+        if (k == PPC_EVT_NONE || k == PPC_EVT_BAD) {
+            printf("     unparsed: %s\n", lines[i]);
+            return false;
+        }
+        if (e.kind == PPC_EVT_IN_BEGIN && e.u.in_head.pair <= 1u) {
+            a->model->want_in[e.u.in_head.pair] = e.u.in_head.req;
+        }
+        changed |= psk_model_apply(a->model, &e, mono_ms());
+    }
+    if (!(changed & PSK_CHANGED_INTEL)) {
+        return false;
+    }
+    psk_evp_paint(a);
+    pump(120);
+    return true;
+}
+
+/* No verdict word of the comparisons is on the page while automatic
+ * verdicts are off (N1.2, DS §59.12). */
+static int insight_verdicts(lv_obj_t *obj)
+{
+    static const char *const never[] = { "SLOWER", "FASTER", "FEWER", "MORE ANSWERED", "MORE FAILURES", "MORE DISCOVERS",
+                                         "MORE ARP", "NO CHANGE", "SMALL CHANGE", "CAN'T TELL", "WORSE", "BETTER" };
+    int n = 0;
+    uint32_t i;
+
+    if (lv_obj_has_flag(obj, LV_OBJ_FLAG_HIDDEN)) {
+        return 0;
+    }
+    if (lv_obj_check_type(obj, &lv_label_class)) {
+        const char *t = lv_label_get_text(obj);
+
+        for (i = 0; i < sizeof(never) / sizeof(never[0]); i++) {
+            if (strstr(t, never[i])) {
+                printf("     '%s' on the WHEN panel: '%s'\n", never[i], t);
+                n++;
+            }
+        }
+    }
+    for (i = 0; i < lv_obj_get_child_count(obj); i++) {
+        n += insight_verdicts(lv_obj_get_child(obj, (int32_t)i));
+    }
+    return n;
+}
+
+/* WHEN (N1.2, DS §59.12): a mark's comparisons as the helper answered them
+ * on the N1.2 bench (research/packetshark-neural/bench), put on the page of
+ * the same mark. The figures, the evidence line and SEEING come from the
+ * words module; no verdict word is shown; an expired reference and a fall in
+ * the DNS answers seen are said, in the warning colour. */
+/* Bench session s54 (ARP storm at the mark, frames lost) and s23 (DNS answers
+ * returning by another path), both pairs of s54 and pair 1 of s23, the mark
+ * renumbered 4; s23's first answer-time reference is marked expired. */
+static const char *const when_storm[] = {
+    "in.begin\t9001\t4\t1\t60071\t127067\t1",
+    "in.vis\t0\t71\t60071\t60\t0\t0\t0\t1862\t0\t0\t1\t1546\t167",
+    "in.vis\t1\t60071\t120071\t60\t0\t0\t0\t10596\t21747\t21747\t1\t9969\t153",
+    "in.cmp\t0\t1\t1\t0\t2\t66\t47\t0\t0\t19093\t21673\t0\t0\t261779\t3523:2\t11910:2\t2113:2\t2135:2",
+    "in.cmp\t1\t1\t1\t0\t2\t66\t47\t66\t47\t1000\t1000\t0\t0\t1000000\t-\t-\t-\t-",
+    "in.cmp\t2\t1\t1\t0\t2\t66\t47\t0\t0\t0\t0\t0\t0\t1000000\t-\t-\t-\t-",
+    "in.cmp\t3\t4\t2\t10\t2\t60\t60\t10\t6\t1000\t600\t0\t0\t21873\t3009:2\t3511:2\t3528:2\t9248:2",
+    "in.cmp\t4\t2\t1\t0\t2\t60\t60\t110\t468\t11000\t46800\t0\t0\t0\t3005:2\t3006:2\t3007:2\t3008:2",
+    "in.end\t9001",
+    "in.begin\t9002\t4\t0\t60071\t127067\t1",
+    "in.vis\t0\t0\t71\t1\t0\t0\t0\t7\t0\t0\t1\t2\t2",
+    "in.vis\t1\t71\t60071\t60\t0\t0\t0\t1862\t0\t0\t1\t1546\t167",
+    "in.cmp\t0\t4\t2\t3\t0\t0\t66\t0\t0\t0\t0\t0\t0\t1000000\t437:2\t1679:2\t418:2\t877:2",
+    "in.cmp\t1\t4\t2\t3\t0\t0\t66\t0\t66\t0\t1000\t0\t0\t1000000\t-\t-\t-\t-",
+    "in.cmp\t2\t4\t2\t3\t0\t0\t66\t0\t0\t0\t0\t0\t0\t1000000\t-\t-\t-\t-",
+    "in.cmp\t3\t4\t2\t3\t0\t1\t60\t0\t10\t0\t1000\t0\t0\t1000000\t23:2\t96:2\t111:2\t454:2",
+    "in.cmp\t4\t4\t2\t3\t0\t1\t60\t3\t110\t18000\t11000\t0\t0\t1000000\t10:2\t12:2\t14:2\t21:2",
+    "in.end\t9002",
+};
+
+static const char *const when_asym[] = {
+    "in.begin\t9001\t4\t1\t59977\t126981\t1",
+    "in.vis\t0\t0\t59977\t60\t0\t0\t0\t407\t0\t0\t1\t131\t134",
+    "in.vis\t1\t59977\t119977\t60\t0\t0\t0\t317\t0\t0\t1\t95\t115",
+    "in.cmp\t0\t4\t2\t10\t32\t66\t31\t0\t0\t17607\t21491\t0\t0\t59460\t457:0\t480:2\t478:2\t617:2",
+    "in.cmp\t1\t2\t0\t0\t0\t66\t50\t66\t31\t1000\t620\t0\t0\t0\t513:2\t514:2\t515:2\t534:2",
+    "in.cmp\t2\t4\t2\t10\t0\t66\t31\t0\t0\t0\t0\t0\t0\t902200\t-\t-\t-\t-",
+    "in.cmp\t3\t1\t0\t0\t0\t60\t60\t10\t7\t1000\t700\t0\t0\t985899\t488:2\t561:2\t612:2\t620:2",
+    "in.cmp\t4\t1\t0\t0\t0\t60\t60\t99\t93\t9900\t9300\t0\t0\t955433\t415:2\t416:2\t417:2\t428:2",
+    "in.end\t9001",
+};
+
+static void n12_when(void)
+{
+    struct ppc_evt_ev_head head = { .req = 4246, .id = 4, .first = 1, .last = 4, .at_ms = 60011,
+                                    .state = PPC_STATE_STOPPED, .seq = 900, .now_ms = 127004 };
+    struct ppc_evt_ev_win win[2];
+    unsigned bad = 0;
+    unsigned t;
+
+    memset(win, 0, sizeof(win));
+    win[0].span_ms = 60000;
+    win[0].watched_s = 60;
+    win[1].span_ms = 60000;
+    win[1].watched_s = 60;
+    win[1].lost = 21747; /* as s54's window after the mark, below */
+    CHECK("WHEN: a mark's page is shown for the comparisons", show_answer(&head, win, NULL, 0));
+    CHECK("WHEN: before its comparisons arrive the panel says it is comparing, and nothing more",
+          part_shown("inpanel") && strstr(label_of("inhead"), "Comparing the minute before the mark") &&
+              !part_shown("inseeing") && !part_shown("infig0"));
+    CHECK("WHEN: an ARP storm with frames lost (bench s54), both pairs, is kept whole",
+          show_insight(when_storm, sizeof(when_storm) / sizeof(when_storm[0])));
+    CHECK("WHEN: the head says five observed and that these are observations only, no verdicts",
+          strstr(label_of("inhead"), "5 OBSERVED") && strstr(label_of("inhead"), "OBSERVATIONS ONLY, NO VERDICTS YET"));
+    CHECK("WHEN: SEEING says the frames lost, in the warning colour",
+          part_shown("inseeing") && strstr(label_of("inseeing"), "FRAMES LOST") &&
+              lv_obj_has_state(part("inseeing"), LV_STATE_USER_1));
+    CHECK("WHEN: the ARP figures before and after, a minute's worth and what was seen",
+          strstr(label_of("infig4"), "A MINUTE") && strstr(label_of("infig4"), "SEEN"));
+    CHECK("WHEN: the DNS answers are figures of questions, never 'answered'",
+          strstr(label_of("infig1"), "QUESTIONS") && !strstr(label_of("infig1"), "ANSWERED"));
+    CHECK("WHEN: the packets the ARP comparison rests on are listed with their state",
+          part_shown("inrefs4") && strstr(label_of("inrefs4"), "PACKETS #") && strstr(label_of("inrefs4"), "WHOLE"));
+    CHECK("WHEN: pair A, before the mark against the two minutes before it, on one line",
+          part_shown("inpaira") && strstr(label_of("inpaira"), "BEFORE THE MARK, AGAINST THE TWO MINUTES BEFORE IT"));
+    CHECK("WHEN: no verdict word on the panel, and none of N1.0's banned words on the page",
+          insight_verdicts(part("inpanel")) == 0 && verdict_words(part("evpage")) == 0);
+    for (t = 0; t < POS_TEXT_SIZE_COUNT; t++) {
+        unsigned n;
+
+        pos_theme_select_text_size((enum pos_text_size)t);
+        pump(250);
+        lv_obj_scroll_to_y(part("evpage"), 0, LV_ANIM_OFF);
+        n = (unsigned)(audit_page() + dots_wrapped(part("evpage")));
+        if (n) {
+            printf("     WHEN at %s: %u issue(s)\n", pos_text_size_name((enum pos_text_size)t), n);
+        }
+        bad += n;
+        if (t == POS_TEXT_SIZE_LARGE) {
+            shot("n12-when-large");
+        }
+    }
+    pos_theme_select_text_size(POS_TEXT_SIZE_SMALL);
+    pump(250);
+    lv_obj_scroll_to_y(part("evpage"), 0, LV_ANIM_OFF);
+    shot("n12-when");
+    CHECK("WHEN: nothing of it clipped or overlapping at Small, Medium and Large", bad == 0);
+
+    CHECK("WHEN: answers returning by another path (bench s23) are kept whole",
+          show_insight(when_asym, sizeof(when_asym) / sizeof(when_asym[0])));
+    CHECK("WHEN: fewer DNS answers seen says an answer by another path is not seen here, in the warning colour",
+          strstr(label_of("inevd1"), "AN ANSWER BY ANOTHER PATH IS NOT SEEN HERE") &&
+              lv_obj_has_state(part("inevd1"), LV_STATE_USER_1));
+    CHECK("WHEN: an expired reference says GONE (EXPIRED), in the warning colour",
+          strstr(label_of("inrefs0"), "GONE (EXPIRED)") && lv_obj_has_state(part("inrefs0"), LV_STATE_USER_1));
+    CHECK("WHEN: still no verdict word", insight_verdicts(part("inpanel")) == 0);
+    lv_obj_scroll_to_y(part("evpage"), 0, LV_ANIM_OFF);
+    shot("n12-when-asym");
+    CHECK("WHEN: nothing of it clipped or overlapping", audit_page() + dots_wrapped(part("evpage")) == 0);
+}
+
 static void n1_replays(bool portrait)
 {
     const char *dir = getenv("PACKETSHARK_FIXTURES");
@@ -4420,6 +4589,7 @@ static void n1_replays(bool portrait)
         shot("n1-unknown");
         CHECK("nothing of it clipped or overlapping at Small, Medium and Large", bad == 0);
     }
+    n12_when();
     app_stop();
     unsetenv("POCKETOS_CAPTURE_SELF_MAC");
     CHECK("and no helper is left", no_child());

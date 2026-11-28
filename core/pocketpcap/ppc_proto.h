@@ -43,6 +43,12 @@
  *                                     once by a `mark` line
  *     evid <req> <id>                 a mark's evidence as it stands; id 0 is
  *                                     the newest mark
+ *     intel <req> <mark> <pair>       a mark's comparisons (N1.2, protocol 7):
+ *                                     pair 1 the minute after against the
+ *                                     minute before, pair 0 the minute before
+ *                                     against its reference; mark 0 is the
+ *                                     newest. Answered by in.begin, two in.vis,
+ *                                     five in.cmp and in.end, queued whole
  *     stats                           one snapshot now
  *     quit
  *
@@ -122,6 +128,20 @@
  *            <a> <b>                  one observation kept as a row; alive says
  *                                     what the buffer still holds of its packet
  *     ev.end <req>                    the answer to `evid`, queued whole
+ *     in.begin <req> <mark> <pair> <at_ms> <now_ms> <final 0|1>
+ *                                     the head of a mark's comparisons (N1.2):
+ *                                     final once the window and the wait of its
+ *                                     last questions have passed, or STOP
+ *     in.vis <side 0|1> <from_ms> <to_ms> <watched_s> <held_s> <shed_s> <gap_s>
+ *            <frames> <lost_lo> <lost_hi> <loss_known 0|1> <own_in> <own_out>
+ *                                     what the capture saw of each window
+ *     in.cmp <metric> <verdict> <quality> <reason> <notes> <n0> <n1> <k0> <k1>
+ *            <stat0> <stat1> <und0> <und1> <p_e6> <ref1> <ref2> <ref3> <ref4>
+ *                                     one comparison, as the engine made it
+ *                                     (ppc_intel.h): its words, its counts,
+ *                                     and up to four packets as <seq>:<alive>
+ *                                     (alive: 0 gone, 1 summary, 2 whole) or -
+ *     in.end <req>                    the answer to `intel`, queued whole
  *     saved <run|done|fail> <packets> <total> <bytes> <name|code>
  *                                     SAVE's progress and outcome (M8); name is
  *                                     the file's name, without its folder
@@ -146,7 +166,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define PPC_PROTO_VERSION 6
+#define PPC_PROTO_VERSION 7
 #define PPC_LINE_MAX 1024
 #define PPC_IFACE_MAX 16
 #define PPC_WINDOW_MAX 48
@@ -223,6 +243,7 @@ enum ppc_cmd_kind {
     PPC_CMD_NET, /* M12.1 */
     PPC_CMD_MARK, /* N1.0 */
     PPC_CMD_EVID, /* N1.0 */
+    PPC_CMD_INTEL, /* N1.2 */
 };
 
 /* Where a window is anchored. */
@@ -274,8 +295,9 @@ struct ppc_cmd {
     int8_t step;
     /* marks */
     uint32_t buckets;
-    /* evid (N1.0) */
+    /* evid (N1.0), intel (N1.2) */
     uint32_t mark_id;  /* 0: the newest mark */
+    uint8_t pair;      /* intel: 1 after against before, 0 before against its reference */
 };
 
 /* An interface name as the kernel allows it: 1..15 characters, no slash,
@@ -308,6 +330,7 @@ int ppc_cmd_format_pin(char *buf, size_t n, uint32_t seq, int on);
 int ppc_cmd_format_net(char *buf, size_t n, uint32_t req);
 int ppc_cmd_format_mark(char *buf, size_t n);
 int ppc_cmd_format_evid(char *buf, size_t n, uint32_t req, uint32_t id);
+int ppc_cmd_format_intel(char *buf, size_t n, uint32_t req, uint32_t id, unsigned pair);
 
 /* ---- events ---------------------------------------------------------------------- */
 
@@ -348,6 +371,10 @@ enum ppc_evt_kind {
     PPC_EVT_EV_WIN,
     PPC_EVT_EV_OBS,
     PPC_EVT_EV_END,    /* u.ev_req */
+    PPC_EVT_IN_BEGIN,  /* N1.2: u.in_head */
+    PPC_EVT_IN_VIS,    /* u.in_vis */
+    PPC_EVT_IN_CMP,    /* u.in_cmp */
+    PPC_EVT_IN_END,    /* u.ev_req */
 };
 
 #define PPC_FIELD_NAME 24
@@ -629,6 +656,41 @@ struct ppc_evt_mark {
     uint64_t wall_s;   /* the wall clock then; 0: not set */
 };
 
+/* Protocol 7 (N1.2): a mark's comparisons, as ppc_intel made them. */
+#define PPC_IN_METRICS 5u /* dns.time, dns.answered, dns.failed, dhcp.discover, arp.request */
+#define PPC_IN_REF_MAX 4u
+
+struct ppc_evt_in_head {
+    uint32_t req;
+    uint32_t mark;     /* the mark's id */
+    uint8_t pair;
+    uint32_t at_ms;
+    uint32_t now_ms;
+    uint8_t final;
+};
+
+struct ppc_evt_in_vis {
+    uint8_t side;
+    uint32_t from_ms, to_ms;
+    uint32_t watched_s, held_s, shed_s, gap_s;
+    uint32_t frames;
+    uint32_t lost_lo, lost_hi;
+    uint8_t loss_known;
+    uint32_t own_in, own_out;
+};
+
+struct ppc_evt_in_cmp {
+    uint8_t metric;    /* enum ppc_in_metric */
+    uint8_t verdict;   /* enum ppc_in_verdict */
+    uint8_t quality;   /* enum ppc_in_quality */
+    uint8_t reason;    /* enum ppc_in_reason */
+    uint8_t notes;     /* PPC_INN_* */
+    uint32_t n[2], k[2], stat[2], und[2];
+    uint32_t p_e6;
+    uint32_t ref[PPC_IN_REF_MAX];   /* 0: none */
+    uint8_t alive[PPC_IN_REF_MAX];  /* PPC_EV_GONE .. PPC_EV_WHOLE */
+};
+
 struct ppc_evt_ev_head {
     uint32_t req;
     uint32_t id;
@@ -813,6 +875,9 @@ struct ppc_evt {
         struct ppc_evt_ev_win ev_win;
         struct ppc_evt_ev_obs ev_obs;
         uint32_t ev_req;
+        struct ppc_evt_in_head in_head;
+        struct ppc_evt_in_vis in_vis;
+        struct ppc_evt_in_cmp in_cmp;
     } u;
 };
 
@@ -870,6 +935,10 @@ int ppc_evt_format_ev_begin(char *buf, size_t n, const struct ppc_evt_ev_head *h
 int ppc_evt_format_ev_win(char *buf, size_t n, const struct ppc_evt_ev_win *w);
 int ppc_evt_format_ev_obs(char *buf, size_t n, const struct ppc_evt_ev_obs *o);
 int ppc_evt_format_ev_end(char *buf, size_t n, uint32_t req);
+int ppc_evt_format_in_begin(char *buf, size_t n, const struct ppc_evt_in_head *h);
+int ppc_evt_format_in_vis(char *buf, size_t n, const struct ppc_evt_in_vis *v);
+int ppc_evt_format_in_cmp(char *buf, size_t n, const struct ppc_evt_in_cmp *m);
+int ppc_evt_format_in_end(char *buf, size_t n, uint32_t req);
 int ppc_evt_format_saved(char *buf, size_t n, enum ppc_save_phase phase, uint32_t packets, uint32_t total,
                          uint64_t bytes, const char *name);
 /* A saved capture's name as the helper makes it: "capture-" then digits

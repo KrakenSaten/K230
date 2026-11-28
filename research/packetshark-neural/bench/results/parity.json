@@ -1,0 +1,1602 @@
+[
+ {
+  "id": "s01",
+  "kind": "clean-periodic",
+  "fault": null,
+  "saved": true,
+  "mark_s": 60.01,
+  "pair0_answered": true,
+  "rows": [
+   {
+    "metric": "dns.time",
+    "live": {
+     "verdict": "no-change",
+     "quality": "good",
+     "reason": "-",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "replay": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "same": true,
+    "dn": [
+     0,
+     0
+    ],
+    "dk": [
+     0,
+     0
+    ]
+   },
+   {
+    "metric": "dns.answered",
+    "live": {
+     "verdict": "no-change",
+     "quality": "good",
+     "reason": "-",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      66,
+      50
+     ]
+    },
+    "replay": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      66,
+      50
+     ]
+    },
+    "same": true,
+    "dn": [
+     0,
+     0
+    ],
+    "dk": [
+     0,
+     0
+    ]
+   },
+   {
+    "metric": "dns.failed",
+    "live": {
+     "verdict": "no-change",
+     "quality": "good",
+     "reason": "-",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "replay": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "same": true,
+    "dn": [
+     0,
+     0
+    ],
+    "dk": [
+     0,
+     0
+    ]
+   },
+   {
+    "metric": "dhcp.discover",
+    "live": {
+     "verdict": "no-change",
+     "quality": "good",
+     "reason": "-",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      7
+     ]
+    },
+    "replay": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      7
+     ]
+    },
+    "same": true,
+    "dn": [
+     0,
+     0
+    ],
+    "dk": [
+     0,
+     0
+    ]
+   },
+   {
+    "metric": "arp.request",
+    "live": {
+     "verdict": "no-change",
+     "quality": "good",
+     "reason": "-",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      97,
+      93
+     ]
+    },
+    "replay": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      97,
+      93
+     ]
+    },
+    "same": true,
+    "dn": [
+     0,
+     0
+    ],
+    "dk": [
+     0,
+     0
+    ]
+   }
+  ]
+ },
+ {
+  "id": "s11",
+  "kind": "loss",
+  "fault": null,
+  "saved": true,
+  "mark_s": 60.006,
+  "pair0_answered": true,
+  "rows": [
+   {
+    "metric": "dns.time",
+    "live": {
+     "verdict": "no-change",
+     "quality": "degraded",
+     "reason": "-",
+     "n": [
+      66,
+      48
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "replay": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      66,
+      48
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "same": true,
+    "dn": [
+     0,
+     0
+    ],
+    "dk": [
+     0,
+     0
+    ]
+   },
+   {
+    "metric": "dns.answered",
+    "live": {
+     "verdict": "no-change",
+     "quality": "degraded",
+     "reason": "-",
+     "n": [
+      66,
+      48
+     ],
+     "k": [
+      66,
+      48
+     ]
+    },
+    "replay": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      66,
+      48
+     ],
+     "k": [
+      66,
+      48
+     ]
+    },
+    "same": true,
+    "dn": [
+     0,
+     0
+    ],
+    "dk": [
+     0,
+     0
+    ]
+   },
+   {
+    "metric": "dns.failed",
+    "live": {
+     "verdict": "no-change",
+     "quality": "degraded",
+     "reason": "-",
+     "n": [
+      66,
+      48
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "replay": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      66,
+      48
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "same": true,
+    "dn": [
+     0,
+     0
+    ],
+    "dk": [
+     0,
+     0
+    ]
+   },
+   {
+    "metric": "dhcp.discover",
+    "live": {
+     "verdict": "cant-tell",
+     "quality": "insufficient",
+     "reason": "weak",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      7
+     ]
+    },
+    "replay": {
+     "verdict": "cant-tell",
+     "reason": "weak",
+     "quality": "insufficient",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      7
+     ]
+    },
+    "same": true,
+    "dn": [
+     0,
+     0
+    ],
+    "dk": [
+     0,
+     0
+    ]
+   },
+   {
+    "metric": "arp.request",
+    "live": {
+     "verdict": "cant-tell",
+     "quality": "insufficient",
+     "reason": "loss-explains",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      100,
+      90
+     ]
+    },
+    "replay": {
+     "verdict": "cant-tell",
+     "reason": "loss-explains",
+     "quality": "insufficient",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      100,
+      90
+     ]
+    },
+    "same": true,
+    "dn": [
+     0,
+     0
+    ],
+    "dk": [
+     0,
+     0
+    ]
+   }
+  ]
+ },
+ {
+  "id": "s15",
+  "kind": "hold",
+  "fault": null,
+  "saved": true,
+  "mark_s": 60.007,
+  "pair0_answered": true,
+  "rows": [
+   {
+    "metric": "dns.time",
+    "live": {
+     "verdict": "no-change",
+     "quality": "degraded",
+     "reason": "-",
+     "n": [
+      66,
+      29
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "replay": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      66,
+      29
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "same": true,
+    "dn": [
+     0,
+     0
+    ],
+    "dk": [
+     0,
+     0
+    ]
+   },
+   {
+    "metric": "dns.answered",
+    "live": {
+     "verdict": "no-change",
+     "quality": "degraded",
+     "reason": "-",
+     "n": [
+      66,
+      29
+     ],
+     "k": [
+      66,
+      29
+     ]
+    },
+    "replay": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      66,
+      29
+     ],
+     "k": [
+      66,
+      29
+     ]
+    },
+    "same": true,
+    "dn": [
+     0,
+     0
+    ],
+    "dk": [
+     0,
+     0
+    ]
+   },
+   {
+    "metric": "dns.failed",
+    "live": {
+     "verdict": "no-change",
+     "quality": "degraded",
+     "reason": "-",
+     "n": [
+      66,
+      29
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "replay": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      66,
+      29
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "same": true,
+    "dn": [
+     0,
+     0
+    ],
+    "dk": [
+     0,
+     0
+    ]
+   },
+   {
+    "metric": "dhcp.discover",
+    "live": {
+     "verdict": "no-change",
+     "quality": "degraded",
+     "reason": "-",
+     "n": [
+      60,
+      42
+     ],
+     "k": [
+      10,
+      6
+     ]
+    },
+    "replay": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      60,
+      42
+     ],
+     "k": [
+      10,
+      6
+     ]
+    },
+    "same": true,
+    "dn": [
+     0,
+     0
+    ],
+    "dk": [
+     0,
+     0
+    ]
+   },
+   {
+    "metric": "arp.request",
+    "live": {
+     "verdict": "no-change",
+     "quality": "degraded",
+     "reason": "-",
+     "n": [
+      60,
+      42
+     ],
+     "k": [
+      96,
+      74
+     ]
+    },
+    "replay": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      60,
+      42
+     ],
+     "k": [
+      96,
+      74
+     ]
+    },
+    "same": true,
+    "dn": [
+     0,
+     0
+    ],
+    "dk": [
+     0,
+     0
+    ]
+   }
+  ]
+ },
+ {
+  "id": "s23",
+  "kind": "asymmetric-return",
+  "fault": null,
+  "saved": true,
+  "mark_s": 60.003,
+  "pair0_answered": true,
+  "rows": [
+   {
+    "metric": "dns.time",
+    "live": {
+     "verdict": "cant-tell",
+     "quality": "insufficient",
+     "reason": "weak",
+     "n": [
+      66,
+      31
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "replay": {
+     "verdict": "cant-tell",
+     "reason": "weak",
+     "quality": "insufficient",
+     "n": [
+      66,
+      31
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "same": true,
+    "dn": [
+     0,
+     0
+    ],
+    "dk": [
+     0,
+     0
+    ]
+   },
+   {
+    "metric": "dns.answered",
+    "live": {
+     "verdict": "worse",
+     "quality": "good",
+     "reason": "-",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      66,
+      31
+     ]
+    },
+    "replay": {
+     "verdict": "worse",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      66,
+      31
+     ]
+    },
+    "same": true,
+    "dn": [
+     0,
+     0
+    ],
+    "dk": [
+     0,
+     0
+    ]
+   },
+   {
+    "metric": "dns.failed",
+    "live": {
+     "verdict": "cant-tell",
+     "quality": "insufficient",
+     "reason": "weak",
+     "n": [
+      66,
+      31
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "replay": {
+     "verdict": "cant-tell",
+     "reason": "weak",
+     "quality": "insufficient",
+     "n": [
+      66,
+      31
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "same": true,
+    "dn": [
+     0,
+     0
+    ],
+    "dk": [
+     0,
+     0
+    ]
+   },
+   {
+    "metric": "dhcp.discover",
+    "live": {
+     "verdict": "no-change",
+     "quality": "good",
+     "reason": "-",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      7
+     ]
+    },
+    "replay": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      7
+     ]
+    },
+    "same": true,
+    "dn": [
+     0,
+     0
+    ],
+    "dk": [
+     0,
+     0
+    ]
+   },
+   {
+    "metric": "arp.request",
+    "live": {
+     "verdict": "no-change",
+     "quality": "good",
+     "reason": "-",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      99,
+      93
+     ]
+    },
+    "replay": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      96,
+      93
+     ]
+    },
+    "same": true,
+    "dn": [
+     0,
+     0
+    ],
+    "dk": [
+     3,
+     0
+    ]
+   }
+  ]
+ },
+ {
+  "id": "s30",
+  "kind": "fault-mid",
+  "fault": "arp_storm",
+  "saved": true,
+  "mark_s": 60.007,
+  "pair0_answered": true,
+  "rows": [
+   {
+    "metric": "dns.time",
+    "live": {
+     "verdict": "no-change",
+     "quality": "good",
+     "reason": "-",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "replay": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "same": true,
+    "dn": [
+     0,
+     0
+    ],
+    "dk": [
+     0,
+     0
+    ]
+   },
+   {
+    "metric": "dns.answered",
+    "live": {
+     "verdict": "no-change",
+     "quality": "good",
+     "reason": "-",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      66,
+      50
+     ]
+    },
+    "replay": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      66,
+      50
+     ]
+    },
+    "same": true,
+    "dn": [
+     0,
+     0
+    ],
+    "dk": [
+     0,
+     0
+    ]
+   },
+   {
+    "metric": "dns.failed",
+    "live": {
+     "verdict": "no-change",
+     "quality": "good",
+     "reason": "-",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "replay": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "same": true,
+    "dn": [
+     0,
+     0
+    ],
+    "dk": [
+     0,
+     0
+    ]
+   },
+   {
+    "metric": "dhcp.discover",
+    "live": {
+     "verdict": "no-change",
+     "quality": "good",
+     "reason": "-",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      7
+     ]
+    },
+    "replay": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      7
+     ]
+    },
+    "same": true,
+    "dn": [
+     0,
+     0
+    ],
+    "dk": [
+     0,
+     0
+    ]
+   },
+   {
+    "metric": "arp.request",
+    "live": {
+     "verdict": "cant-tell",
+     "quality": "insufficient",
+     "reason": "loss-explains",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      96,
+      405
+     ]
+    },
+    "replay": {
+     "verdict": "cant-tell",
+     "reason": "loss-explains",
+     "quality": "insufficient",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      96,
+      405
+     ]
+    },
+    "same": true,
+    "dn": [
+     0,
+     0
+    ],
+    "dk": [
+     0,
+     0
+    ]
+   }
+  ]
+ },
+ {
+  "id": "s44",
+  "kind": "fault",
+  "fault": "dns_slow",
+  "saved": true,
+  "mark_s": 60.008,
+  "pair0_answered": true,
+  "rows": [
+   {
+    "metric": "dns.time",
+    "live": {
+     "verdict": "worse",
+     "quality": "good",
+     "reason": "-",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "replay": {
+     "verdict": "worse",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "same": true,
+    "dn": [
+     0,
+     0
+    ],
+    "dk": [
+     0,
+     0
+    ]
+   },
+   {
+    "metric": "dns.answered",
+    "live": {
+     "verdict": "no-change",
+     "quality": "good",
+     "reason": "-",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      66,
+      50
+     ]
+    },
+    "replay": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      66,
+      50
+     ]
+    },
+    "same": true,
+    "dn": [
+     0,
+     0
+    ],
+    "dk": [
+     0,
+     0
+    ]
+   },
+   {
+    "metric": "dns.failed",
+    "live": {
+     "verdict": "no-change",
+     "quality": "good",
+     "reason": "-",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "replay": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "same": true,
+    "dn": [
+     0,
+     0
+    ],
+    "dk": [
+     0,
+     0
+    ]
+   },
+   {
+    "metric": "dhcp.discover",
+    "live": {
+     "verdict": "no-change",
+     "quality": "good",
+     "reason": "-",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      7
+     ]
+    },
+    "replay": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      7
+     ]
+    },
+    "same": true,
+    "dn": [
+     0,
+     0
+    ],
+    "dk": [
+     0,
+     0
+    ]
+   },
+   {
+    "metric": "arp.request",
+    "live": {
+     "verdict": "no-change",
+     "quality": "good",
+     "reason": "-",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      99,
+      95
+     ]
+    },
+    "replay": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      99,
+      95
+     ]
+    },
+    "same": true,
+    "dn": [
+     0,
+     0
+    ],
+    "dk": [
+     0,
+     0
+    ]
+   }
+  ]
+ },
+ {
+  "id": "s50",
+  "kind": "fault",
+  "fault": "servfail",
+  "saved": true,
+  "mark_s": 60.005,
+  "pair0_answered": true,
+  "rows": [
+   {
+    "metric": "dns.time",
+    "live": {
+     "verdict": "no-change",
+     "quality": "good",
+     "reason": "-",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "replay": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "same": true,
+    "dn": [
+     0,
+     0
+    ],
+    "dk": [
+     0,
+     0
+    ]
+   },
+   {
+    "metric": "dns.answered",
+    "live": {
+     "verdict": "no-change",
+     "quality": "good",
+     "reason": "-",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      66,
+      50
+     ]
+    },
+    "replay": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      66,
+      50
+     ]
+    },
+    "same": true,
+    "dn": [
+     0,
+     0
+    ],
+    "dk": [
+     0,
+     0
+    ]
+   },
+   {
+    "metric": "dns.failed",
+    "live": {
+     "verdict": "worse",
+     "quality": "good",
+     "reason": "-",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      24
+     ]
+    },
+    "replay": {
+     "verdict": "worse",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      66,
+      50
+     ],
+     "k": [
+      0,
+      24
+     ]
+    },
+    "same": true,
+    "dn": [
+     0,
+     0
+    ],
+    "dk": [
+     0,
+     0
+    ]
+   },
+   {
+    "metric": "dhcp.discover",
+    "live": {
+     "verdict": "no-change",
+     "quality": "good",
+     "reason": "-",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      7
+     ]
+    },
+    "replay": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      7
+     ]
+    },
+    "same": true,
+    "dn": [
+     0,
+     0
+    ],
+    "dk": [
+     0,
+     0
+    ]
+   },
+   {
+    "metric": "arp.request",
+    "live": {
+     "verdict": "no-change",
+     "quality": "good",
+     "reason": "-",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      100,
+      93
+     ]
+    },
+    "replay": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "good",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      97,
+      93
+     ]
+    },
+    "same": true,
+    "dn": [
+     0,
+     0
+    ],
+    "dk": [
+     3,
+     0
+    ]
+   }
+  ]
+ },
+ {
+  "id": "s54",
+  "kind": "fault-loss",
+  "fault": "arp_storm",
+  "saved": true,
+  "mark_s": 60.005,
+  "pair0_answered": true,
+  "rows": [
+   {
+    "metric": "dns.time",
+    "live": {
+     "verdict": "no-change",
+     "quality": "degraded",
+     "reason": "-",
+     "n": [
+      66,
+      47
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "replay": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      66,
+      47
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "same": true,
+    "dn": [
+     0,
+     0
+    ],
+    "dk": [
+     0,
+     0
+    ]
+   },
+   {
+    "metric": "dns.answered",
+    "live": {
+     "verdict": "no-change",
+     "quality": "degraded",
+     "reason": "-",
+     "n": [
+      66,
+      47
+     ],
+     "k": [
+      66,
+      47
+     ]
+    },
+    "replay": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      66,
+      47
+     ],
+     "k": [
+      66,
+      47
+     ]
+    },
+    "same": true,
+    "dn": [
+     0,
+     0
+    ],
+    "dk": [
+     0,
+     0
+    ]
+   },
+   {
+    "metric": "dns.failed",
+    "live": {
+     "verdict": "no-change",
+     "quality": "degraded",
+     "reason": "-",
+     "n": [
+      66,
+      47
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "replay": {
+     "verdict": "no-change",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      66,
+      47
+     ],
+     "k": [
+      0,
+      0
+     ]
+    },
+    "same": true,
+    "dn": [
+     0,
+     0
+    ],
+    "dk": [
+     0,
+     0
+    ]
+   },
+   {
+    "metric": "dhcp.discover",
+    "live": {
+     "verdict": "cant-tell",
+     "quality": "insufficient",
+     "reason": "weak",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      6
+     ]
+    },
+    "replay": {
+     "verdict": "cant-tell",
+     "reason": "weak",
+     "quality": "insufficient",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      10,
+      6
+     ]
+    },
+    "same": true,
+    "dn": [
+     0,
+     0
+    ],
+    "dk": [
+     0,
+     0
+    ]
+   },
+   {
+    "metric": "arp.request",
+    "live": {
+     "verdict": "worse",
+     "quality": "degraded",
+     "reason": "-",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      110,
+      468
+     ]
+    },
+    "replay": {
+     "verdict": "worse",
+     "reason": "-",
+     "quality": "degraded",
+     "n": [
+      60,
+      60
+     ],
+     "k": [
+      110,
+      468
+     ]
+    },
+    "same": true,
+    "dn": [
+     0,
+     0
+    ],
+    "dk": [
+     0,
+     0
+    ]
+   }
+  ]
+ }
+]

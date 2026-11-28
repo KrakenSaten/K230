@@ -67,9 +67,25 @@ static void on_packet(u_char *user, const struct pcap_pkthdr *h, const u_char *b
     f.wire_len = h->len < h->caplen ? h->caplen : h->len;
     f.ts_ns = (uint64_t)h->ts.tv_sec * 1000000000u +
               (ps->nano ? (uint64_t)h->ts.tv_usec : (uint64_t)h->ts.tv_usec * 1000u);
+    /* The direction libpcap does not give, from the interface's address:
+     * sent by this device, addressed to it, broadcast, multicast, or for
+     * another host (N1.2: the comparisons count this device's frames in and
+     * out, and N1.0's own DNS answers are those addressed to it). */
     f.pkttype = PPC_PKT_UNKNOWN;
-    if (ps->have_mac && h->caplen >= 14 && memcmp(bytes + 6, ps->mac, 6) == 0) {
-        f.pkttype = PPC_PKT_OUTGOING;
+    if (ps->have_mac && h->caplen >= 14) {
+        static const uint8_t bcast[6] = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff };
+
+        if (memcmp(bytes + 6, ps->mac, 6) == 0) {
+            f.pkttype = PPC_PKT_OUTGOING;
+        } else if (memcmp(bytes, ps->mac, 6) == 0) {
+            f.pkttype = PPC_PKT_HOST;
+        } else if (memcmp(bytes, bcast, 6) == 0) {
+            f.pkttype = PPC_PKT_BROADCAST;
+        } else if (bytes[0] & 1u) {
+            f.pkttype = PPC_PKT_MULTICAST;
+        } else {
+            f.pkttype = PPC_PKT_OTHERHOST;
+        }
     }
     ps->fn(ps->ctx, &f);
 }

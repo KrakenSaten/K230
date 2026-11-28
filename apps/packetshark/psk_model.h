@@ -19,6 +19,7 @@
 #define PSK_MODEL_H
 
 #include "pocketpcap/ppc_proto.h"
+#include "psk_in.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -61,6 +62,7 @@ enum psk_exit {
 #define PSK_CHANGED_NETLIST 0x4000u /* its devices, servers, leases and events arrived whole */
 #define PSK_CHANGED_MARK 0x8000u    /* a mark was set (N1.0) */
 #define PSK_CHANGED_EVID 0x10000u   /* a mark's evidence arrived whole (N1.0) */
+#define PSK_CHANGED_INTEL 0x20000u  /* a mark's comparisons arrived whole (N1.2, protocol 7) */
 
 /* The inspector's packet, as text (M6). */
 struct psk_layer {
@@ -236,6 +238,14 @@ struct psk_model {
     bool have_ev;
     struct psk_evidence ev;
     struct psk_evidence ev_next;
+    /* A mark's comparisons (N1.2, protocol 7), by pair (0 before the mark,
+     * 1 after it): the newest request's answer, filled in in_next[] and
+     * kept whole in insight[] at in.end. */
+    uint32_t want_in[2];
+    int8_t in_open;          /* the pair being filled, -1 none */
+    bool have_in[2];
+    struct psk_insight insight[2];
+    struct psk_insight in_next;
 };
 
 void psk_model_init(struct psk_model *m);

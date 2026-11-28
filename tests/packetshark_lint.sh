@@ -118,6 +118,42 @@ check "a mark's evidence is asked for in one function, and never while its page 
     "$([ "$hits" = "2" ] && sed -n -E '/^static void ev_ask\(/,/^}/p' $A/psk_app.c | grep -q 'psk_session_evid(a->session, a->model, a->ev_id)' &&
        sed -n -E '/^static void ev_poll\(/,/^}/p' $A/psk_app.c | grep -q 'if ((!psk_evp_shown(a) && !a->mark_wait) || !psk_capture_present(a)) {' &&
        echo 1 || echo 0)"
+# The intelligence engine's first slice (N1.1, docs/apps/packetshark/neural/N1.1.md)
+# by the same rules: one allocation, no text, no clock, no loop without a
+# bound, nothing of a socket, no byte of a packet; and host-only until its
+# hook, protocol and screen are approved.
+hits=$(code $C/ppc_intel.c | grep -nE '\b(malloc|calloc|realloc|printf|snprintf|sprintf|fprintf|puts)\(')
+check "the intelligence engine allocates once, at init, and formats nothing (N1.1)" \
+    "$([ "$(echo "$hits" | grep -c .)" = "1" ] && echo "$hits" | grep -q 'in->mem = calloc(1, ppc_intel_bytes());' &&
+       echo 1 || echo 0)"
+hits=$(code $C/ppc_intel.c | grep -nE '\bwhile *\(1\)|\bfor *\(;;\)|goto|#include <(sys/socket|netinet|arpa|unistd|time)|\b(clock_gettime|gettimeofday|time)\(')
+check "it has no unbounded loop, no goto, no clock of its own and nothing of a socket in it" "$([ -z "$hits" ] && echo 1 || echo 0)"
+[ -n "$hits" ] && echo "$hits" | head -5
+hits=$(code $C/ppc_intel.c | grep -nE 'qname|->name\b|payload|->data\b|ppc_store_copy|ppc_dissect|->mac\b|->ip2?\b')
+check "nothing of a packet's bytes, a name or an address reaches the engine: counts, times and packet numbers" \
+    "$([ -z "$hits" ] && echo 1 || echo 0)"
+[ -n "$hits" ] && echo "$hits" | head -5
+# N1.2: the engine is linked into the helper alone. The shell reads its
+# comparisons as protocol 7 lines and never links it; Companion's
+# capture.status says nothing of them (D7).
+hits=$(grep -lE 'ppc_intel' $A/*.c $A/*.h $A/ui/*.c ui/shell/*.c ui/shell/CMakeLists.txt 2>/dev/null | tr '\n' ' ')
+check "the engine is in the helper alone: never in the shell, which reads protocol 7 ($hits)" \
+    "$([ -z "$hits" ] && grep -q '#include \"pocketpcap/ppc_intel.h\"' $H &&
+       ! sed -n '/^PPC_CORE_OBJS/,/^PPC_SRC_OBJS/p' Makefile | grep -q ppc_intel &&
+       grep -q '^POS_CAPTURE_OBJS := .*\$(PPC_INTEL_OBJS)' Makefile && echo 1 || echo 0)"
+check "the engine's one allocation is made at START, before the privilege drop and the system call filter" \
+    "$(sed -n -E "/^(static )?[a-z ]+\*?cmd_start\(/,/^}/p" $H | grep -n 'ppc_intel_init(&h->intl)\|drop_privileges(h, why, sizeof(why))' | cut -d: -f2 | tr '\n' ' ' |
+       grep -q 'ppc_intel_init(&h->intl).*drop_privileges(h, why, sizeof(why))' &&
+       [ "$(code $H | sed -E '/^static int run_bench\(/,/^}/d' | grep -c 'ppc_intel_init(')" = "1" ] && echo 1 || echo 0)"
+check "each of N1.0's six call sites feeds the engine beside the evidence (start, frames, ARP/DHCP, DNS, readings, ticks, MARK, STOP)" \
+    "$(code $H | grep -q 'ppc_intel_frame(&h->intl, t_ms, f->pkttype, h->shed)' && code $H | grep -c 'ppc_intel_note(&h->intl, &o)' | grep -qx 2 &&
+       code $H | grep -q 'ppc_intel_counters(&h->intl, t, ok,' && code $H | grep -q 'ppc_intel_tick(&h->intl, t,' &&
+       code $H | grep -q 'ppc_intel_mark(&h->intl, m->id, m->at_ms)' && code $H | grep -q 'ppc_intel_stop(&h->intl, t)' && echo 1 || echo 0)"
+check "Companion's capture.status is unchanged: it carries no comparison" \
+    "$(! code $A/psk_remote.c | grep -qE 'in_cmp|in\.cmp|intel|insight' && echo 1 || echo 0)"
+check "the intel answer is queued whole and bounded like evid's, and logs nothing" \
+    "$(ib() { sed -n -E "/^static [a-z ]+cmd_intel\(/,/^}/p" $H; }; ib | grep -q 'static char buf\[4096\];' && ib | grep -q 'ppc_evt_format_in_end' &&
+       ! ib | code /dev/stdin | grep -q 'LOG_' && echo 1 || echo 0)"
 hits=$(code $A/*.c $A/ui/*.c | grep -cE 'psk_session_mark\(')
 check "a mark is set in one function, which sends the helper nothing else" \
     "$([ "$hits" = "2" ] && sed -n -E '/^void psk_mark\(/,/^}/p' $A/psk_app.c | grep -q 'psk_session_mark(a->session)' &&
@@ -139,7 +175,8 @@ check "the evidence reports the capture filter only a live source applies, and t
 # reading, made or not.
 check "the drop counters are read in one function, which tells the history whether each reading was made" \
     "$([ "$(code $H | grep -c 'ops->stats(')" = "1" ] && hbody read_drops | grep -q 'h->src.ops->stats(&h->src, &kd, &ifd) == 0' &&
-       hbody read_drops | grep -q 'ppc_evid_counters(&h->ev, ev_tick(h), ok, h->st.kdrop + h->st.ifdrop);' &&
+       hbody read_drops | grep -q 'ppc_evid_counters(&h->ev, t, ok, h->st.kdrop + h->st.ifdrop);' &&
+       hbody read_drops | grep -q 'uint32_t t = ev_tick(h);' &&
        ! hbody read_drops | grep -q 'return 0;' && echo 1 || echo 0)"
 check "the lost-frame counters are read at the mark, before it is set" \
     "$(hbody cmd_mark | grep -n 'read_drops(h);\|ppc_evid_mark(' | cut -d: -f2 | tr '\n' ' ' |
@@ -284,8 +321,8 @@ check "the evidence page is put on and taken off the active screen in one functi
 hits=$(code $A/psk_ev.c | grep -oE '"[^"]*"' | grep -niE 'missing|unanswered|not answered|no reply|no answer|fault|score|confidence|health|likely|probably|diagnos|%%')
 check "the evidence's words name no missing reply, no fault, no score and no percentage" "$([ -z "$hits" ] && echo 1 || echo 0)"
 [ -n "$hits" ] && echo "$hits" | head -5
-hits=$(code $A/ui/psk_evidence.c | grep -oE '"[^"]*"' | grep -vE '^"(psk_app\.h|psk_ev\.h|%s|%u|! %s|%s" DOT "PACKET %s|)"$' |
-       grep -viE '^"(Mark|BACK|BEFORE|AFTER|WHAT WAS WATCHED|OBSERVED|MESSAGES COUNTED|OBSERVATIONS|TAP FOR THE PACKET|THE MARK|PACKET %s|DHCP, ARP AND DNS IN PACKETS|WHAT THIS CAN AND CANNOT TELL|Reading what the capture has seen\.| \\xc2\\xb7 |%s)"$')
+hits=$(code $A/ui/psk_evidence.c | grep -oE '"[^"]*"' | grep -vE '^"(psk_app\.h|psk_ev\.h|psk_in\.h|%s|%u|! %s|%s" DOT "PACKET %s|)"$' |
+       grep -viE '^"(Mark|BACK|BEFORE|AFTER|WHAT WAS WATCHED|OBSERVED|MESSAGES COUNTED|OBSERVATIONS|TAP FOR THE PACKET|THE MARK|PACKET %s|WHEN|BEFORE AND AFTER THE MARK|DHCP, ARP AND DNS IN PACKETS|WHAT THIS CAN AND CANNOT TELL|Reading what the capture has seen\.| \\xc2\\xb7 |%s)"$')
 check "the page itself adds headings and no sentence of its own to them" "$([ -z "$hits" ] && echo 1 || echo 0)"
 [ -n "$hits" ] && echo "$hits" | head -8
 # The one mention of /tmp is the refusal to save there (ppc_captures_dir).

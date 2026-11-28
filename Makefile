@@ -2356,19 +2356,24 @@ PPC_LIVE_OBJ := $(PPC_DIR)/ppc_source_none.o
 PPC_LIBS :=
 endif
 PPC_OBJS := $(PPC_CORE_OBJS) $(PPC_SRC_OBJS) $(PPC_LIVE_OBJ)
-POS_CAPTURE_OBJS := tools/capture/pos_capture.o tools/capture/capture_priv.o $(PPC_OBJS) $(PATHS_OBJS) $(LOG_OBJS)
+# The intelligence engine (N1.1, frozen in G0.md §8.5), linked into the
+# capture helper since N1.2: the comparisons answer protocol 7's `intel`.
+# Never into the shell, which reads the protocol only.
+PPC_INTEL_OBJS := $(PPC_DIR)/ppc_intel.o
+POS_CAPTURE_OBJS := tools/capture/pos_capture.o tools/capture/capture_priv.o $(PPC_INTEL_OBJS) $(PPC_OBJS) $(PATHS_OBJS) \
+                    $(LOG_OBJS)
 PSK_DIR := apps/packetshark
 PSK_OBJS := $(PSK_DIR)/psk_session.o $(PSK_DIR)/psk_model.o $(PSK_DIR)/psk_net.o $(PSK_DIR)/psk_saves.o \
-            $(PSK_DIR)/psk_ev.o
+            $(PSK_DIR)/psk_ev.o $(PSK_DIR)/psk_in.o
 PACKETSHARK_TESTS := tests/ppc_decode_test tests/ppc_pcapfile_test tests/ppc_store_test \
                      tests/ppc_stats_test tests/ppc_proto_test tests/ppc_fuzz tests/ppc_mkfixtures \
                      tests/ppc_view_test tests/ppc_dissect_test tests/ppc_signals_test tests/ppc_net_test \
                      tests/ppc_evid_test tests/ppc_evid_mkfixtures tests/pos-capture-testhooks \
-                     tests/psk_model_test tests/psk_net_test tests/psk_ev_test tests/psk_session_test \
-                     tests/psk_remote_test tests/capture_priv_test
+                     tests/psk_model_test tests/psk_net_test tests/psk_ev_test tests/psk_in_test tests/psk_session_test \
+                     tests/psk_remote_test tests/ppc_intel_test tests/capture_priv_test
 
 tools/capture/pos-capture: $(POS_CAPTURE_OBJS)
-	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(PPC_LIBS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(PPC_LIBS) -lm
 
 $(PSK_DIR)/%.o: $(PSK_DIR)/%.c
 	$(CC) $(ALL_CFLAGS) -I$(PSK_DIR) -c -o $@ $<
@@ -2387,6 +2392,11 @@ tests/ppc_evid_mkfixtures: tests/%: tests/%.o $(PPC_OBJS)
 
 tests/ppc_evid_test.o tests/ppc_evid_mkfixtures.o: tests/ppc_evid_fixtures.h
 
+tests/ppc_intel_test: tests/ppc_intel_test.o $(PPC_INTEL_OBJS) $(PPC_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(PPC_LIBS) -lm
+
+tests/ppc_intel_test.o: tests/ppc_intel_fixtures.h tests/ppc_evid_fixtures.h
+
 # A pos-capture that can be told to run without an analyser, as a capture
 # whose table could not be allocated does (POS_CAPTURE_TEST_NO_ANALYZER=dns,
 # net), for tests/pos_capture_evid_test.sh. Only this object carries the
@@ -2397,8 +2407,9 @@ tests/pos_capture_hooks.o: tools/capture/pos_capture.c
 tests/capture_priv_hooks.o: tools/capture/capture_priv.c tools/capture/capture_priv.h
 	$(CC) $(ALL_CFLAGS) -DPOS_CAPTURE_TEST_HOOKS=1 -c -o $@ $<
 
-tests/pos-capture-testhooks: tests/pos_capture_hooks.o tests/capture_priv_hooks.o $(PPC_OBJS) $(PATHS_OBJS) $(LOG_OBJS)
-	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(PPC_LIBS)
+tests/pos-capture-testhooks: tests/pos_capture_hooks.o tests/capture_priv_hooks.o $(PPC_INTEL_OBJS) $(PPC_OBJS) \
+                             $(PATHS_OBJS) $(LOG_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(PPC_LIBS) -lm
 
 # The helper's least privilege (ADR-016 rule 17, amended): the identity
 # switch and its checks, in child processes. Run as root it tests the switch
@@ -2414,6 +2425,9 @@ tests/psk_model_test tests/psk_net_test: tests/%: tests/%.o $(PSK_DIR)/psk_model
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) -lm
 
 tests/psk_ev_test: tests/psk_ev_test.o $(PSK_DIR)/psk_ev.o $(PSK_DIR)/psk_model.o $(PSK_DIR)/psk_net.o $(PPC_APP_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) -lm
+
+tests/psk_in_test: tests/psk_in_test.o $(PSK_DIR)/psk_in.o $(PSK_DIR)/psk_model.o $(PSK_DIR)/psk_net.o $(PPC_APP_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) -lm
 
 tests/psk_remote_test: tests/psk_remote_test.o $(PSK_DIR)/psk_remote.o $(PSK_DIR)/psk_model.o $(PSK_DIR)/psk_net.o $(PPC_APP_OBJS)
@@ -2432,7 +2446,7 @@ PACKETSHARK_TEST_RUN = ./tests/ppc_decode_test && ./tests/ppc_pcapfile_test && \
     ./tests/ppc_evid_test && \
     mkdir -p out/packetshark-fixtures && ./tests/ppc_mkfixtures out/packetshark-fixtures &&     ./tests/ppc_fuzz -seconds $(PACKETSHARK_FUZZ_S) tests/data/packetshark out/packetshark-fixtures && \
     ./tests/psk_model_test && ./tests/psk_net_test && ./tests/psk_ev_test tests/data/packetshark && \
-    ./tests/psk_remote_test && \
+    ./tests/psk_in_test && ./tests/psk_remote_test && \
     ./tests/psk_session_test tools/capture/pos-capture && \
     bash tests/pos_capture_test.sh tools/capture/pos-capture tests/ppc_mkfixtures && \
     bash tests/pos_capture_evid_test.sh tools/capture/pos-capture tests/ppc_evid_mkfixtures tests/pos-capture-testhooks && \
@@ -2471,6 +2485,8 @@ packetshark-san-test:
 	set -e; for t in ppc_decode_test ppc_pcapfile_test ppc_store_test ppc_stats_test ppc_proto_test ppc_fuzz ppc_mkfixtures \
 	    ppc_view_test ppc_dissect_test ppc_signals_test ppc_net_test ppc_evid_test ppc_evid_mkfixtures; do \
 	    $(CC) $(PSK_SAN_CFLAGS) -o $(PSK_SAN_DIR)/tests/$$t tests/$$t.c $(PPC_SAN_SRCS); done
+	$(CC) $(PSK_SAN_CFLAGS) -o $(PSK_SAN_DIR)/tests/ppc_intel_test tests/ppc_intel_test.c $(PPC_DIR)/ppc_intel.c \
+	    $(PPC_SAN_SRCS) -lm
 	$(CC) $(PSK_SAN_CFLAGS) -o $(PSK_SAN_DIR)/tests/psk_model_test tests/psk_model_test.c \
 	    $(PSK_DIR)/psk_model.c $(PSK_DIR)/psk_net.c $(PPC_DIR)/ppc_proto.c -lm
 	$(CC) $(PSK_SAN_CFLAGS) -o $(PSK_SAN_DIR)/tests/psk_net_test tests/psk_net_test.c \
@@ -2483,14 +2499,15 @@ packetshark-san-test:
 	    $(PSK_DIR)/psk_session.c $(PSK_DIR)/psk_model.c $(PSK_DIR)/psk_net.c $(PSK_DIR)/psk_saves.c \
 	    $(PPC_DIR)/ppc_proto.c -lm
 	$(CC) $(PSK_SAN_CFLAGS) -o $(PSK_SAN_DIR)/tools/capture/pos-capture tools/capture/pos_capture.c \
-	    tools/capture/capture_priv.c $(PPC_SAN_SRCS) core/pocketpaths.c core/pocketlog/pocketlog.c
+	    tools/capture/capture_priv.c $(PPC_DIR)/ppc_intel.c $(PPC_SAN_SRCS) core/pocketpaths.c core/pocketlog/pocketlog.c -lm
 	$(CC) $(PSK_SAN_CFLAGS) -DPOS_CAPTURE_TEST_HOOKS=1 -o $(PSK_SAN_DIR)/tests/pos-capture-testhooks \
-	    tools/capture/pos_capture.c tools/capture/capture_priv.c $(PPC_SAN_SRCS) core/pocketpaths.c \
-	    core/pocketlog/pocketlog.c
+	    tools/capture/pos_capture.c tools/capture/capture_priv.c $(PPC_DIR)/ppc_intel.c $(PPC_SAN_SRCS) \
+	    core/pocketpaths.c core/pocketlog/pocketlog.c -lm
 	cd $(PSK_SAN_DIR) && ./tests/ppc_decode_test && ./tests/ppc_pcapfile_test && \
 	    ASAN_OPTIONS=allocator_may_return_null=1 ./tests/ppc_store_test && \
 	    ./tests/ppc_stats_test && ./tests/ppc_proto_test && ./tests/ppc_view_test && ./tests/ppc_dissect_test && \
-	    ./tests/ppc_signals_test && ./tests/ppc_net_test && ./tests/ppc_evid_test && ./tests/psk_model_test && \
+	    ./tests/ppc_signals_test && ./tests/ppc_net_test && ./tests/ppc_evid_test && ./tests/ppc_intel_test && \
+	    ./tests/psk_model_test && \
 	    ./tests/psk_net_test && ./tests/psk_ev_test tests/data/packetshark && ./tests/psk_remote_test && \
 	    mkdir -p fixtures && ./tests/ppc_mkfixtures fixtures && 	    ./tests/ppc_fuzz -seconds $(PACKETSHARK_SAN_FUZZ_S) tests/data/packetshark fixtures
 	cd $(PSK_SAN_DIR) && ASAN_OPTIONS=handle_segv=0 ./tests/psk_session_test tools/capture/pos-capture
@@ -2498,6 +2515,12 @@ packetshark-san-test:
 	    $(PSK_SAN_DIR)/tests/ppc_mkfixtures
 	ASAN_OPTIONS=handle_segv=0 bash tests/pos_capture_evid_test.sh $(PSK_SAN_DIR)/tools/capture/pos-capture \
 	    $(PSK_SAN_DIR)/tests/ppc_evid_mkfixtures $(PSK_SAN_DIR)/tests/pos-capture-testhooks
+
+# The intelligence engine's first slice alone (N1.1): its six replay
+# fixtures against their expected ledgers, determinism, replay parity from
+# pcap, the statistics, the bounds and its cost on this host.
+packetshark-intel-test: tests/ppc_intel_test
+	./tests/ppc_intel_test && bash tests/packetshark_lint.sh
 
 # The helper's least privilege alone (F1 hardening, ADR-016 rule 17
 # amended). As root it proves the identity switch, what the identity can no
@@ -2508,7 +2531,7 @@ packetshark-priv-test: tools/capture/pos-capture tests/pos-capture-testhooks tes
 	    bash tests/pos_capture_priv_test.sh tools/capture/pos-capture tests/pos-capture-testhooks && \
 	    bash tests/packetshark_lint.sh
 
-.PHONY: packetshark-test packetshark-n1-test packetshark-san-test packetshark-priv-test
+.PHONY: packetshark-test packetshark-n1-test packetshark-san-test packetshark-intel-test packetshark-priv-test
 
 # Browser (docs/apps/BROWSER.md, ADR-009 accepted).
 #

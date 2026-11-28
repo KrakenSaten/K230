@@ -17,6 +17,7 @@ void psk_model_init(struct psk_model *m)
 {
     memset(m, 0, sizeof(*m));
     m->state = PPC_STATE_IDLE;
+    m->in_open = -1;
 }
 
 void psk_model_helper_started(struct psk_model *m, int64_t now_ms)
@@ -57,6 +58,9 @@ void psk_model_clear_packets(struct psk_model *m)
     m->nmarks = 0;
     m->first_mark = 0;
     memset(&m->last_mark, 0, sizeof(m->last_mark));
+    m->want_in[0] = m->want_in[1] = 0;
+    m->in_open = -1;
+    m->have_in[0] = m->have_in[1] = false;
     m->want_ev = 0;
     m->ev_open = false;
     m->have_ev = false;
@@ -336,6 +340,42 @@ unsigned psk_model_apply(struct psk_model *m, const struct ppc_evt *e, int64_t n
             return PSK_CHANGED_EVID;
         }
         m->ev_open = false;
+        return 0;
+    case PPC_EVT_IN_BEGIN: {
+        unsigned p = e->u.in_head.pair;
+
+        if (p > 1u || e->u.in_head.req != m->want_in[p] || m->want_in[p] == 0) {
+            m->in_open = -1; /* stale: an answer to an older request */
+            return 0;
+        }
+        memset(&m->in_next, 0, sizeof(m->in_next));
+        m->in_next.head = e->u.in_head;
+        m->in_open = (int8_t)p;
+        return 0;
+    }
+    case PPC_EVT_IN_VIS:
+        if (m->in_open >= 0 && m->in_next.nvis < 2) {
+            m->in_next.vis[e->u.in_vis.side] = e->u.in_vis;
+            m->in_next.nvis++;
+        }
+        return 0;
+    case PPC_EVT_IN_CMP:
+        if (m->in_open >= 0 && e->u.in_cmp.metric < PPC_IN_METRICS) {
+            m->in_next.cmp[e->u.in_cmp.metric] = e->u.in_cmp;
+            m->in_next.have |= (uint8_t)(1u << e->u.in_cmp.metric);
+        }
+        return 0;
+    case PPC_EVT_IN_END:
+        if (m->in_open >= 0 && e->u.ev_req == m->want_in[m->in_open] && m->in_next.nvis == 2 &&
+            m->in_next.have == (1u << PPC_IN_METRICS) - 1u) {
+            unsigned p = (unsigned)m->in_open;
+
+            m->insight[p] = m->in_next;
+            m->have_in[p] = true;
+            m->in_open = -1;
+            return PSK_CHANGED_INTEL;
+        }
+        m->in_open = -1;
         return 0;
     case PPC_EVT_MARKS:
         if (e->u.marks.req != m->want_marks || m->want_marks == 0) {

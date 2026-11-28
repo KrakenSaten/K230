@@ -1,0 +1,5818 @@
+{
+ "what": "E3a-R, synthetic only; see the module docstring",
+ "rule": {
+  "old_time": false,
+  "old_spell": false
+ },
+ "config": {
+  "seeds": 10,
+  "sites": 40,
+  "windows_per_site": 60,
+  "alpha": 0.01,
+  "gate_coverage": 0.98,
+  "fault_share": 0.5,
+  "artifact_share_window": 0.5,
+  "artifact_share_base": 0.2,
+  "loss_range": [
+   0.001,
+   0.6
+  ],
+  "readings_per_s": 4,
+  "read_fail_window_share": 0.35
+ },
+ "summary": {
+  "naive": {
+   "false_claim_rate": {
+    "all": {
+     "mean": 0.0161,
+     "sd": 0.0019,
+     "min": 0.0136,
+     "max": 0.0198
+    },
+    "none": {
+     "mean": 0.0018,
+     "sd": 0.0007,
+     "min": 0.001,
+     "max": 0.0029
+    },
+    "loss": {
+     "mean": 0.0056,
+     "sd": 0.0025,
+     "min": 0.0029,
+     "max": 0.0107
+    },
+    "hold": {
+     "mean": 0.0006,
+     "sd": 0.0006,
+     "min": 0.0,
+     "max": 0.0017
+    },
+    "oneway": {
+     "mean": 0.0831,
+     "sd": 0.009,
+     "min": 0.0695,
+     "max": 0.0979
+    }
+   },
+   "false_alert_windows": {
+    "all": {
+     "mean": 0.085,
+     "sd": 0.0115,
+     "min": 0.0677,
+     "max": 0.0986
+    },
+    "none": {
+     "mean": 0.0078,
+     "sd": 0.0021,
+     "min": 0.0048,
+     "max": 0.0117
+    },
+    "loss": {
+     "mean": 0.0252,
+     "sd": 0.0109,
+     "min": 0.0132,
+     "max": 0.0455
+    },
+    "hold": {
+     "mean": 0.0035,
+     "sd": 0.0041,
+     "min": 0.0,
+     "max": 0.0101
+    },
+    "oneway": {
+     "mean": 0.4518,
+     "sd": 0.0519,
+     "min": 0.375,
+     "max": 0.545
+    }
+   },
+   "abstain_rate": {
+    "all": {
+     "mean": 0.3024,
+     "sd": 0.0278,
+     "min": 0.261,
+     "max": 0.3421
+    },
+    "none": {
+     "mean": 0.2744,
+     "sd": 0.0295,
+     "min": 0.2295,
+     "max": 0.3183
+    },
+    "loss": {
+     "mean": 0.2758,
+     "sd": 0.0311,
+     "min": 0.2399,
+     "max": 0.3244
+    },
+    "hold": {
+     "mean": 0.2918,
+     "sd": 0.0318,
+     "min": 0.2351,
+     "max": 0.3363
+    },
+    "oneway": {
+     "mean": 0.4195,
+     "sd": 0.0242,
+     "min": 0.3818,
+     "max": 0.4535
+    }
+   },
+   "recall": {
+    "all": {
+     "mean": 0.562,
+     "sd": 0.0365,
+     "min": 0.5099,
+     "max": 0.632
+    },
+    "alone": {
+     "mean": 0.5811,
+     "sd": 0.0408,
+     "min": 0.5103,
+     "max": 0.6547
+    },
+    "overlap": {
+     "mean": 0.5429,
+     "sd": 0.038,
+     "min": 0.4782,
+     "max": 0.6102
+    },
+    "overlap_loss": {
+     "mean": 0.587,
+     "sd": 0.0479,
+     "min": 0.5178,
+     "max": 0.6517
+    },
+    "overlap_hold": {
+     "mean": 0.5238,
+     "sd": 0.0465,
+     "min": 0.4315,
+     "max": 0.5981
+    },
+    "overlap_oneway": {
+     "mean": 0.5191,
+     "sd": 0.0448,
+     "min": 0.4211,
+     "max": 0.5882
+    }
+   },
+   "misses": {
+    "cant-tell": 4249,
+    "no-change": 456,
+    "better": 16,
+    "small": 479
+   },
+   "per_fault": {
+    "dns_down": {
+     "recall": 0.529,
+     "cant_tell": 0.442,
+     "no_change": 0.021,
+     "small": 0.0
+    },
+    "dns_slow": {
+     "recall": 0.456,
+     "cant_tell": 0.502,
+     "no_change": 0.004,
+     "small": 0.038
+    },
+    "servfail": {
+     "recall": 0.347,
+     "cant_tell": 0.575,
+     "no_change": 0.078,
+     "small": 0.0
+    },
+    "arp_storm": {
+     "recall": 0.988,
+     "cant_tell": 0.006,
+     "no_change": 0.006,
+     "small": 0.0
+    },
+    "dhcp_trouble": {
+     "recall": 0.949,
+     "cant_tell": 0.05,
+     "no_change": 0.001,
+     "small": 0.0
+    },
+    "subtle_latency": {
+     "recall": 0.09,
+     "cant_tell": 0.577,
+     "no_change": 0.124,
+     "small": 0.209
+    }
+   },
+   "dns_recall_by_density": {
+    "sparse": 0.06,
+    "medium": 0.432,
+    "busy": 0.665
+   },
+   "miss_reasons": {
+    "weak": 1656,
+    "too-few": 2540,
+    "unseen": 53
+   },
+   "selective_time": {
+    "material": {
+     "n": 55,
+     "worse": 0,
+     "no-change": 0,
+     "cant-tell": 55,
+     "small": 0,
+     "better": 0
+    },
+    "not_material": {
+     "n": 1099,
+     "worse": 1,
+     "no-change": 480,
+     "cant-tell": 570,
+     "small": 47,
+     "better": 1
+    }
+   }
+  },
+  "gate": {
+   "false_claim_rate": {
+    "all": {
+     "mean": 0.0134,
+     "sd": 0.0015,
+     "min": 0.0115,
+     "max": 0.0161
+    },
+    "none": {
+     "mean": 0.0003,
+     "sd": 0.0003,
+     "min": 0.0,
+     "max": 0.0008
+    },
+    "loss": {
+     "mean": 0.0004,
+     "sd": 0.0004,
+     "min": 0.0,
+     "max": 0.0007
+    },
+    "hold": {
+     "mean": 0.0004,
+     "sd": 0.0006,
+     "min": 0.0,
+     "max": 0.0017
+    },
+    "oneway": {
+     "mean": 0.0767,
+     "sd": 0.0086,
+     "min": 0.064,
+     "max": 0.0912
+    }
+   },
+   "false_alert_windows": {
+    "all": {
+     "mean": 0.073,
+     "sd": 0.0094,
+     "min": 0.0566,
+     "max": 0.0829
+    },
+    "none": {
+     "mean": 0.0021,
+     "sd": 0.0019,
+     "min": 0.0,
+     "max": 0.0065
+    },
+    "loss": {
+     "mean": 0.0011,
+     "sd": 0.0023,
+     "min": 0.0,
+     "max": 0.0057
+    },
+    "hold": {
+     "mean": 0.0009,
+     "sd": 0.002,
+     "min": 0.0,
+     "max": 0.0048
+    },
+    "oneway": {
+     "mean": 0.4229,
+     "sd": 0.0534,
+     "min": 0.3462,
+     "max": 0.5079
+    }
+   },
+   "abstain_rate": {
+    "all": {
+     "mean": 0.3658,
+     "sd": 0.0263,
+     "min": 0.3261,
+     "max": 0.406
+    },
+    "none": {
+     "mean": 0.2943,
+     "sd": 0.0298,
+     "min": 0.2482,
+     "max": 0.3414
+    },
+    "loss": {
+     "mean": 0.4581,
+     "sd": 0.0218,
+     "min": 0.4205,
+     "max": 0.4864
+    },
+    "hold": {
+     "mean": 0.4237,
+     "sd": 0.0348,
+     "min": 0.368,
+     "max": 0.4593
+    },
+    "oneway": {
+     "mean": 0.4361,
+     "sd": 0.0241,
+     "min": 0.3945,
+     "max": 0.4674
+    }
+   },
+   "recall": {
+    "all": {
+     "mean": 0.5241,
+     "sd": 0.0344,
+     "min": 0.4747,
+     "max": 0.5968
+    },
+    "alone": {
+     "mean": 0.5662,
+     "sd": 0.041,
+     "min": 0.4948,
+     "max": 0.6427
+    },
+    "overlap": {
+     "mean": 0.4826,
+     "sd": 0.035,
+     "min": 0.4223,
+     "max": 0.5526
+    },
+    "overlap_loss": {
+     "mean": 0.4403,
+     "sd": 0.0378,
+     "min": 0.3842,
+     "max": 0.5
+    },
+    "overlap_hold": {
+     "mean": 0.5041,
+     "sd": 0.0462,
+     "min": 0.4365,
+     "max": 0.5848
+    },
+    "overlap_oneway": {
+     "mean": 0.5008,
+     "sd": 0.0529,
+     "min": 0.3842,
+     "max": 0.5747
+    }
+   },
+   "misses": {
+    "cant-tell": 4699,
+    "no-change": 505,
+    "better": 14,
+    "small": 432
+   },
+   "per_fault": {
+    "dns_down": {
+     "recall": 0.478,
+     "cant_tell": 0.484,
+     "no_change": 0.03,
+     "small": 0.0
+    },
+    "dns_slow": {
+     "recall": 0.414,
+     "cant_tell": 0.537,
+     "no_change": 0.013,
+     "small": 0.035
+    },
+    "servfail": {
+     "recall": 0.312,
+     "cant_tell": 0.605,
+     "no_change": 0.083,
+     "small": 0.0
+    },
+    "arp_storm": {
+     "recall": 0.938,
+     "cant_tell": 0.057,
+     "no_change": 0.005,
+     "small": 0.0
+    },
+    "dhcp_trouble": {
+     "recall": 0.905,
+     "cant_tell": 0.095,
+     "no_change": 0.0,
+     "small": 0.0
+    },
+    "subtle_latency": {
+     "recall": 0.086,
+     "cant_tell": 0.599,
+     "no_change": 0.128,
+     "small": 0.187
+    }
+   },
+   "dns_recall_by_density": {
+    "sparse": 0.047,
+    "medium": 0.394,
+    "busy": 0.612
+   },
+   "miss_reasons": {
+    "weak": 1570,
+    "not-watched": 491,
+    "too-few": 2528,
+    "unseen": 48,
+    "one-way": 62
+   },
+   "selective_time": {
+    "material": {
+     "n": 55,
+     "worse": 1,
+     "no-change": 0,
+     "cant-tell": 54,
+     "small": 0,
+     "better": 0
+    },
+    "not_material": {
+     "n": 1099,
+     "worse": 1,
+     "no-change": 366,
+     "cant-tell": 696,
+     "small": 35,
+     "better": 1
+    }
+   }
+  },
+  "oracle-gate": {
+   "false_claim_rate": {
+    "all": {
+     "mean": 0.0137,
+     "sd": 0.0015,
+     "min": 0.0117,
+     "max": 0.0165
+    },
+    "none": {
+     "mean": 0.0003,
+     "sd": 0.0003,
+     "min": 0.0,
+     "max": 0.0008
+    },
+    "loss": {
+     "mean": 0.0003,
+     "sd": 0.0004,
+     "min": 0.0,
+     "max": 0.0007
+    },
+    "hold": {
+     "mean": 0.0004,
+     "sd": 0.0006,
+     "min": 0.0,
+     "max": 0.0017
+    },
+    "oneway": {
+     "mean": 0.0781,
+     "sd": 0.009,
+     "min": 0.0646,
+     "max": 0.0936
+    }
+   },
+   "false_alert_windows": {
+    "all": {
+     "mean": 0.0738,
+     "sd": 0.01,
+     "min": 0.0566,
+     "max": 0.0837
+    },
+    "none": {
+     "mean": 0.0018,
+     "sd": 0.0012,
+     "min": 0.0,
+     "max": 0.0034
+    },
+    "loss": {
+     "mean": 0.0005,
+     "sd": 0.0016,
+     "min": 0.0,
+     "max": 0.005
+    },
+    "hold": {
+     "mean": 0.0014,
+     "sd": 0.0023,
+     "min": 0.0,
+     "max": 0.0051
+    },
+    "oneway": {
+     "mean": 0.4287,
+     "sd": 0.0553,
+     "min": 0.3413,
+     "max": 0.5185
+    }
+   },
+   "abstain_rate": {
+    "all": {
+     "mean": 0.359,
+     "sd": 0.0259,
+     "min": 0.3183,
+     "max": 0.3962
+    },
+    "none": {
+     "mean": 0.2863,
+     "sd": 0.0294,
+     "min": 0.2403,
+     "max": 0.3302
+    },
+    "loss": {
+     "mean": 0.4593,
+     "sd": 0.0201,
+     "min": 0.4155,
+     "max": 0.4848
+    },
+    "hold": {
+     "mean": 0.4117,
+     "sd": 0.0321,
+     "min": 0.3636,
+     "max": 0.4482
+    },
+    "oneway": {
+     "mean": 0.4309,
+     "sd": 0.0244,
+     "min": 0.3878,
+     "max": 0.4622
+    }
+   },
+   "recall": {
+    "all": {
+     "mean": 0.5305,
+     "sd": 0.0338,
+     "min": 0.4807,
+     "max": 0.6002
+    },
+    "alone": {
+     "mean": 0.5707,
+     "sd": 0.0387,
+     "min": 0.5,
+     "max": 0.641
+    },
+    "overlap": {
+     "mean": 0.4908,
+     "sd": 0.0377,
+     "min": 0.4241,
+     "max": 0.5609
+    },
+    "overlap_loss": {
+     "mean": 0.4476,
+     "sd": 0.0385,
+     "min": 0.3925,
+     "max": 0.5281
+    },
+    "overlap_hold": {
+     "mean": 0.5165,
+     "sd": 0.0468,
+     "min": 0.4416,
+     "max": 0.6027
+    },
+    "overlap_oneway": {
+     "mean": 0.5065,
+     "sd": 0.0524,
+     "min": 0.3842,
+     "max": 0.5747
+    }
+   },
+   "misses": {
+    "cant-tell": 4644,
+    "no-change": 470,
+    "better": 13,
+    "small": 447
+   },
+   "per_fault": {
+    "dns_down": {
+     "recall": 0.492,
+     "cant_tell": 0.473,
+     "no_change": 0.028,
+     "small": 0.0
+    },
+    "dns_slow": {
+     "recall": 0.419,
+     "cant_tell": 0.535,
+     "no_change": 0.009,
+     "small": 0.038
+    },
+    "servfail": {
+     "recall": 0.32,
+     "cant_tell": 0.6,
+     "no_change": 0.08,
+     "small": 0.0
+    },
+    "arp_storm": {
+     "recall": 0.942,
+     "cant_tell": 0.055,
+     "no_change": 0.003,
+     "small": 0.0
+    },
+    "dhcp_trouble": {
+     "recall": 0.912,
+     "cant_tell": 0.088,
+     "no_change": 0.0,
+     "small": 0.0
+    },
+    "subtle_latency": {
+     "recall": 0.088,
+     "cant_tell": 0.599,
+     "no_change": 0.121,
+     "small": 0.193
+    }
+   },
+   "dns_recall_by_density": {
+    "sparse": 0.052,
+    "medium": 0.4,
+    "busy": 0.621
+   },
+   "miss_reasons": {
+    "weak": 1565,
+    "not-watched": 502,
+    "too-few": 2464,
+    "unseen": 51,
+    "one-way": 62
+   },
+   "selective_time": {
+    "material": {
+     "n": 55,
+     "worse": 1,
+     "no-change": 0,
+     "cant-tell": 54,
+     "small": 0,
+     "better": 0
+    },
+    "not_material": {
+     "n": 1099,
+     "worse": 0,
+     "no-change": 374,
+     "cant-tell": 690,
+     "small": 34,
+     "better": 1
+    }
+   }
+  },
+  "loss-aware": {
+   "false_claim_rate": {
+    "all": {
+     "mean": 0.0004,
+     "sd": 0.0002,
+     "min": 0.0002,
+     "max": 0.0008
+    },
+    "none": {
+     "mean": 0.0003,
+     "sd": 0.0003,
+     "min": 0.0,
+     "max": 0.0008
+    },
+    "loss": {
+     "mean": 0.0006,
+     "sd": 0.0004,
+     "min": 0.0,
+     "max": 0.0014
+    },
+    "hold": {
+     "mean": 0.0006,
+     "sd": 0.0009,
+     "min": 0.0,
+     "max": 0.0023
+    },
+    "oneway": {
+     "mean": 0.0002,
+     "sd": 0.0003,
+     "min": 0.0,
+     "max": 0.0007
+    }
+   },
+   "false_alert_windows": {
+    "all": {
+     "mean": 0.0019,
+     "sd": 0.0008,
+     "min": 0.0016,
+     "max": 0.0042
+    },
+    "none": {
+     "mean": 0.002,
+     "sd": 0.0013,
+     "min": 0.0,
+     "max": 0.0034
+    },
+    "loss": {
+     "mean": 0.0026,
+     "sd": 0.0027,
+     "min": 0.0,
+     "max": 0.0057
+    },
+    "hold": {
+     "mean": 0.0025,
+     "sd": 0.0035,
+     "min": 0.0,
+     "max": 0.0101
+    },
+    "oneway": {
+     "mean": 0.0005,
+     "sd": 0.0015,
+     "min": 0.0,
+     "max": 0.0048
+    }
+   },
+   "abstain_rate": {
+    "all": {
+     "mean": 0.3937,
+     "sd": 0.0241,
+     "min": 0.3563,
+     "max": 0.4229
+    },
+    "none": {
+     "mean": 0.3253,
+     "sd": 0.0269,
+     "min": 0.283,
+     "max": 0.3614
+    },
+    "loss": {
+     "mean": 0.3399,
+     "sd": 0.0327,
+     "min": 0.2959,
+     "max": 0.3977
+    },
+    "hold": {
+     "mean": 0.4296,
+     "sd": 0.0304,
+     "min": 0.3737,
+     "max": 0.4612
+    },
+    "oneway": {
+     "mean": 0.6084,
+     "sd": 0.0108,
+     "min": 0.5875,
+     "max": 0.6272
+    }
+   },
+   "recall": {
+    "all": {
+     "mean": 0.5186,
+     "sd": 0.0301,
+     "min": 0.4807,
+     "max": 0.5759
+    },
+    "alone": {
+     "mean": 0.5601,
+     "sd": 0.0398,
+     "min": 0.4914,
+     "max": 0.6342
+    },
+    "overlap": {
+     "mean": 0.4775,
+     "sd": 0.0305,
+     "min": 0.4363,
+     "max": 0.5197
+    },
+    "overlap_loss": {
+     "mean": 0.5651,
+     "sd": 0.0424,
+     "min": 0.4953,
+     "max": 0.6158
+    },
+    "overlap_hold": {
+     "mean": 0.5084,
+     "sd": 0.0441,
+     "min": 0.4365,
+     "max": 0.5789
+    },
+    "overlap_oneway": {
+     "mean": 0.3605,
+     "sd": 0.045,
+     "min": 0.2796,
+     "max": 0.403
+    }
+   },
+   "misses": {
+    "cant-tell": 4875,
+    "no-change": 399,
+    "better": 0,
+    "small": 441
+   },
+   "per_fault": {
+    "dns_down": {
+     "recall": 0.344,
+     "cant_tell": 0.629,
+     "no_change": 0.027,
+     "small": 0.0
+    },
+    "dns_slow": {
+     "recall": 0.412,
+     "cant_tell": 0.551,
+     "no_change": 0.004,
+     "small": 0.033
+    },
+    "servfail": {
+     "recall": 0.311,
+     "cant_tell": 0.632,
+     "no_change": 0.057,
+     "small": 0.0
+    },
+    "arp_storm": {
+     "recall": 0.992,
+     "cant_tell": 0.005,
+     "no_change": 0.003,
+     "small": 0.0
+    },
+    "dhcp_trouble": {
+     "recall": 0.961,
+     "cant_tell": 0.039,
+     "no_change": 0.0,
+     "small": 0.0
+    },
+    "subtle_latency": {
+     "recall": 0.08,
+     "cant_tell": 0.612,
+     "no_change": 0.113,
+     "small": 0.194
+    }
+   },
+   "dns_recall_by_density": {
+    "sparse": 0.045,
+    "medium": 0.347,
+    "busy": 0.541
+   },
+   "miss_reasons": {
+    "weak": 1301,
+    "loss-unknown": 80,
+    "one-way": 1578,
+    "too-few": 1905,
+    "not-watched": 4,
+    "unseen": 7
+   },
+   "selective_time": {
+    "material": {
+     "n": 55,
+     "worse": 0,
+     "no-change": 0,
+     "cant-tell": 55,
+     "small": 0,
+     "better": 0
+    },
+    "not_material": {
+     "n": 1099,
+     "worse": 1,
+     "no-change": 453,
+     "cant-tell": 597,
+     "small": 47,
+     "better": 1
+    }
+   }
+  }
+ },
+ "g0": {
+  "naive": {
+   "false_claims": {
+    "clean": {
+     "k": 8,
+     "n": 3507,
+     "rate": 0.00228,
+     "upper95": 0.00404,
+     "pass_": true
+    },
+    "loss-uniform": {
+     "k": 22,
+     "n": 1008,
+     "rate": 0.02183,
+     "upper95": 0.03077,
+     "pass_": false
+    },
+    "loss-burst": {
+     "k": 28,
+     "n": 992,
+     "rate": 0.02823,
+     "upper95": 0.03824,
+     "pass_": false
+    },
+    "hold": {
+     "k": 7,
+     "n": 2017,
+     "rate": 0.00347,
+     "upper95": 0.00639,
+     "pass_": true
+    },
+    "one-way": {
+     "k": 927,
+     "n": 2055,
+     "rate": 0.45109,
+     "upper95": 0.4692,
+     "pass_": false
+    },
+    "counters-failed": {
+     "k": 267,
+     "n": 3335,
+     "rate": 0.08006,
+     "upper95": 0.08814,
+     "pass_": false
+    }
+   },
+   "pass": false,
+   "recall_material_under_loss": {
+    "k": 1116,
+    "n": 1631,
+    "rate": 0.6842,
+    "lower95": 0.665,
+    "pass_": true
+   },
+   "false_reassurance_material": {
+    "k": 218,
+    "n": 9951,
+    "rate": 0.0219
+   },
+   "abstention_material": {
+    "k": 3139,
+    "n": 9951,
+    "rate": 0.3154
+   },
+   "per_fault": {
+    "dns_down": {
+     "n": 1966,
+     "recall": 0.53,
+     "abstained": 0.442,
+     "no_change": 0.021
+    },
+    "dns_slow": {
+     "n": 2044,
+     "recall": 0.456,
+     "abstained": 0.501,
+     "no_change": 0.004
+    },
+    "servfail": {
+     "n": 1974,
+     "recall": 0.348,
+     "abstained": 0.574,
+     "no_change": 0.078
+    },
+    "arp_storm": {
+     "n": 1976,
+     "recall": 0.988,
+     "abstained": 0.006,
+     "no_change": 0.006
+    },
+    "dhcp_trouble": {
+     "n": 1991,
+     "recall": 0.949,
+     "abstained": 0.05,
+     "no_change": 0.001
+    },
+    "subtle_latency": {
+     "n": 1923,
+     "recall": 0.09,
+     "abstained": 0.577,
+     "no_change": 0.124
+    }
+   }
+  },
+  "gate": {
+   "false_claims": {
+    "clean": {
+     "k": 8,
+     "n": 3507,
+     "rate": 0.00228,
+     "upper95": 0.00404,
+     "pass_": true
+    },
+    "loss-uniform": {
+     "k": 1,
+     "n": 1008,
+     "rate": 0.00099,
+     "upper95": 0.00443,
+     "pass_": true
+    },
+    "loss-burst": {
+     "k": 1,
+     "n": 992,
+     "rate": 0.00101,
+     "upper95": 0.00451,
+     "pass_": true
+    },
+    "hold": {
+     "k": 2,
+     "n": 2017,
+     "rate": 0.00099,
+     "upper95": 0.00299,
+     "pass_": true
+    },
+    "one-way": {
+     "k": 868,
+     "n": 2055,
+     "rate": 0.42238,
+     "upper95": 0.4404,
+     "pass_": false
+    },
+    "counters-failed": {
+     "k": 217,
+     "n": 3335,
+     "rate": 0.06507,
+     "upper95": 0.07245,
+     "pass_": false
+    }
+   },
+   "pass": false,
+   "recall_material_under_loss": {
+    "k": 838,
+    "n": 1631,
+    "rate": 0.5138,
+    "lower95": 0.4934,
+    "pass_": false
+   },
+   "false_reassurance_material": {
+    "k": 260,
+    "n": 9951,
+    "rate": 0.0261
+   },
+   "abstention_material": {
+    "k": 3547,
+    "n": 9951,
+    "rate": 0.3564
+   },
+   "per_fault": {
+    "dns_down": {
+     "n": 1966,
+     "recall": 0.478,
+     "abstained": 0.484,
+     "no_change": 0.031
+    },
+    "dns_slow": {
+     "n": 2044,
+     "recall": 0.414,
+     "abstained": 0.538,
+     "no_change": 0.013
+    },
+    "servfail": {
+     "n": 1974,
+     "recall": 0.313,
+     "abstained": 0.604,
+     "no_change": 0.083
+    },
+    "arp_storm": {
+     "n": 1976,
+     "recall": 0.938,
+     "abstained": 0.057,
+     "no_change": 0.005
+    },
+    "dhcp_trouble": {
+     "n": 1991,
+     "recall": 0.905,
+     "abstained": 0.095,
+     "no_change": 0.0
+    },
+    "subtle_latency": {
+     "n": 1923,
+     "recall": 0.086,
+     "abstained": 0.599,
+     "no_change": 0.127
+    }
+   }
+  },
+  "oracle-gate": {
+   "false_claims": {
+    "clean": {
+     "k": 8,
+     "n": 3507,
+     "rate": 0.00228,
+     "upper95": 0.00404,
+     "pass_": true
+    },
+    "loss-uniform": {
+     "k": 1,
+     "n": 1008,
+     "rate": 0.00099,
+     "upper95": 0.00443,
+     "pass_": true
+    },
+    "loss-burst": {
+     "k": 0,
+     "n": 992,
+     "rate": 0.0,
+     "upper95": 0.00272,
+     "pass_": true
+    },
+    "hold": {
+     "k": 3,
+     "n": 2017,
+     "rate": 0.00149,
+     "upper95": 0.00372,
+     "pass_": true
+    },
+    "one-way": {
+     "k": 880,
+     "n": 2055,
+     "rate": 0.42822,
+     "upper95": 0.44626,
+     "pass_": false
+    },
+    "counters-failed": {
+     "k": 234,
+     "n": 3335,
+     "rate": 0.07016,
+     "upper95": 0.07779,
+     "pass_": false
+    }
+   },
+   "pass": false,
+   "recall_material_under_loss": {
+    "k": 852,
+    "n": 1631,
+    "rate": 0.5224,
+    "lower95": 0.502,
+    "pass_": true
+   },
+   "false_reassurance_material": {
+    "k": 238,
+    "n": 9951,
+    "rate": 0.0239
+   },
+   "abstention_material": {
+    "k": 3492,
+    "n": 9951,
+    "rate": 0.3509
+   },
+   "per_fault": {
+    "dns_down": {
+     "n": 1966,
+     "recall": 0.492,
+     "abstained": 0.473,
+     "no_change": 0.028
+    },
+    "dns_slow": {
+     "n": 2044,
+     "recall": 0.418,
+     "abstained": 0.535,
+     "no_change": 0.009
+    },
+    "servfail": {
+     "n": 1974,
+     "recall": 0.321,
+     "abstained": 0.599,
+     "no_change": 0.08
+    },
+    "arp_storm": {
+     "n": 1976,
+     "recall": 0.941,
+     "abstained": 0.055,
+     "no_change": 0.004
+    },
+    "dhcp_trouble": {
+     "n": 1991,
+     "recall": 0.912,
+     "abstained": 0.088,
+     "no_change": 0.0
+    },
+    "subtle_latency": {
+     "n": 1923,
+     "recall": 0.088,
+     "abstained": 0.599,
+     "no_change": 0.121
+    }
+   }
+  },
+  "loss-aware": {
+   "false_claims": {
+    "clean": {
+     "k": 8,
+     "n": 3507,
+     "rate": 0.00228,
+     "upper95": 0.00404,
+     "pass_": true
+    },
+    "loss-uniform": {
+     "k": 1,
+     "n": 1008,
+     "rate": 0.00099,
+     "upper95": 0.00443,
+     "pass_": true
+    },
+    "loss-burst": {
+     "k": 4,
+     "n": 992,
+     "rate": 0.00403,
+     "upper95": 0.00895,
+     "pass_": true
+    },
+    "hold": {
+     "k": 5,
+     "n": 2017,
+     "rate": 0.00248,
+     "upper95": 0.00508,
+     "pass_": true
+    },
+    "one-way": {
+     "k": 1,
+     "n": 2055,
+     "rate": 0.00049,
+     "upper95": 0.00218,
+     "pass_": true
+    },
+    "counters-failed": {
+     "k": 4,
+     "n": 3335,
+     "rate": 0.0012,
+     "upper95": 0.00267,
+     "pass_": true
+    }
+   },
+   "pass": true,
+   "recall_material_under_loss": {
+    "k": 1073,
+    "n": 1631,
+    "rate": 0.6579,
+    "lower95": 0.6383,
+    "pass_": true
+   },
+   "false_reassurance_material": {
+    "k": 182,
+    "n": 9951,
+    "rate": 0.0183
+   },
+   "abstention_material": {
+    "k": 3697,
+    "n": 9951,
+    "rate": 0.3715
+   },
+   "per_fault": {
+    "dns_down": {
+     "n": 1966,
+     "recall": 0.344,
+     "abstained": 0.629,
+     "no_change": 0.027
+    },
+    "dns_slow": {
+     "n": 2044,
+     "recall": 0.412,
+     "abstained": 0.551,
+     "no_change": 0.004
+    },
+    "servfail": {
+     "n": 1974,
+     "recall": 0.312,
+     "abstained": 0.631,
+     "no_change": 0.057
+    },
+    "arp_storm": {
+     "n": 1976,
+     "recall": 0.991,
+     "abstained": 0.005,
+     "no_change": 0.004
+    },
+    "dhcp_trouble": {
+     "n": 1991,
+     "recall": 0.96,
+     "abstained": 0.04,
+     "no_change": 0.0
+    },
+    "subtle_latency": {
+     "n": 1923,
+     "recall": 0.081,
+     "abstained": 0.613,
+     "no_change": 0.113
+    }
+   }
+  }
+ },
+ "seeds_used": [
+  1000,
+  1001,
+  1002,
+  1003,
+  1004,
+  1005,
+  1006,
+  1007,
+  1008,
+  1009
+ ],
+ "per_seed": [
+  {
+   "naive": {
+    "false_claim_rate": {
+     "all": 0.013572726301164904,
+     "none": 0.001473063973063973,
+     "loss": 0.0038240917782026767,
+     "hold": 0.0,
+     "oneway": 0.07534699272967614
+    },
+    "false_alert_windows": {
+     "all": 0.06774193548387097,
+     "none": 0.0049586776859504135,
+     "loss": 0.013157894736842105,
+     "hold": 0.0,
+     "oneway": 0.4083769633507853
+    },
+    "abstain_rate": {
+     "all": 0.2933632574543123,
+     "none": 0.25441919191919193,
+     "loss": 0.28234544295729763,
+     "hold": 0.29218647406434667,
+     "oneway": 0.42828816920026436
+    },
+    "recall": {
+     "all": 0.5646551724137931,
+     "alone": 0.5838926174496645,
+     "overlap": 0.5443262411347518,
+     "overlap_loss": 0.59,
+     "overlap_hold": 0.5272727272727272,
+     "overlap_oneway": 0.5125628140703518
+    },
+    "n_fault": {
+     "all": 1160,
+     "alone": 596,
+     "overlap": 564,
+     "overlap_loss": 200,
+     "overlap_hold": 165,
+     "overlap_oneway": 199
+    },
+    "misses": {
+     "cant-tell": 407,
+     "no-change": 37,
+     "better": 1,
+     "small": 60
+    },
+    "per_fault": {
+     "dns_down": {
+      "recall": 0.5511363636363636,
+      "cant_tell": 0.4318181818181818,
+      "no_change": 0.011363636363636364,
+      "small": 0.0
+     },
+     "dns_slow": {
+      "recall": 0.4329896907216495,
+      "cant_tell": 0.5103092783505154,
+      "no_change": 0.010309278350515464,
+      "small": 0.04639175257731959
+     },
+     "servfail": {
+      "recall": 0.3229166666666667,
+      "cant_tell": 0.609375,
+      "no_change": 0.06770833333333333,
+      "small": 0.0
+     },
+     "arp_storm": {
+      "recall": 0.9806763285024155,
+      "cant_tell": 0.00966183574879227,
+      "no_change": 0.00966183574879227,
+      "small": 0.0
+     },
+     "dhcp_trouble": {
+      "recall": 0.9545454545454546,
+      "cant_tell": 0.045454545454545456,
+      "no_change": 0.0,
+      "small": 0.0
+     },
+     "subtle_latency": {
+      "recall": 0.10362694300518134,
+      "cant_tell": 0.538860103626943,
+      "no_change": 0.09326424870466321,
+      "small": 0.26424870466321243
+     }
+    },
+    "dns_recall_by_density": {
+     "sparse": 0.05190311418685121,
+     "medium": 0.4260089686098655,
+     "busy": 0.6296296296296297
+    },
+    "miss_reasons": {
+     "weak": 143,
+     "too-few": 256,
+     "unseen": 8
+    },
+    "selective_time": {
+     "material": {
+      "n": 11,
+      "worse": 0,
+      "no-change": 0,
+      "cant-tell": 11,
+      "small": 0,
+      "better": 0
+     },
+     "not_material": {
+      "n": 117,
+      "worse": 0,
+      "no-change": 50,
+      "cant-tell": 62,
+      "small": 5,
+      "better": 0
+     }
+    }
+   },
+   "gate": {
+    "false_claim_rate": {
+     "all": 0.011649032809661217,
+     "none": 0.00021043771043771043,
+     "loss": 0.0006373486297004461,
+     "hold": 0.0006565988181221273,
+     "oneway": 0.07005948446794448
+    },
+    "false_alert_windows": {
+     "all": 0.05967741935483871,
+     "none": 0.001652892561983471,
+     "loss": 0.0,
+     "hold": 0.004629629629629629,
+     "oneway": 0.3769633507853403
+    },
+    "abstain_rate": {
+     "all": 0.3582344768622422,
+     "none": 0.2746212121212121,
+     "loss": 0.4595283620140217,
+     "hold": 0.4287590282337492,
+     "oneway": 0.4448116325181758
+    },
+    "recall": {
+     "all": 0.528448275862069,
+     "alone": 0.5671140939597316,
+     "overlap": 0.4875886524822695,
+     "overlap_loss": 0.47,
+     "overlap_hold": 0.49696969696969695,
+     "overlap_oneway": 0.49748743718592964
+    },
+    "n_fault": {
+     "all": 1160,
+     "alone": 596,
+     "overlap": 564,
+     "overlap_loss": 200,
+     "overlap_hold": 165,
+     "overlap_oneway": 199
+    },
+    "misses": {
+     "cant-tell": 450,
+     "no-change": 43,
+     "better": 1,
+     "small": 53
+    },
+    "per_fault": {
+     "dns_down": {
+      "recall": 0.4943181818181818,
+      "cant_tell": 0.48295454545454547,
+      "no_change": 0.017045454545454544,
+      "small": 0.0
+     },
+     "dns_slow": {
+      "recall": 0.422680412371134,
+      "cant_tell": 0.5154639175257731,
+      "no_change": 0.020618556701030927,
+      "small": 0.041237113402061855
+     },
+     "servfail": {
+      "recall": 0.296875,
+      "cant_tell": 0.6354166666666666,
+      "no_change": 0.06770833333333333,
+      "small": 0.0
+     },
+     "arp_storm": {
+      "recall": 0.9082125603864735,
+      "cant_tell": 0.07729468599033816,
+      "no_change": 0.014492753623188406,
+      "small": 0.0
+     },
+     "dhcp_trouble": {
+      "recall": 0.9141414141414141,
+      "cant_tell": 0.08585858585858586,
+      "no_change": 0.0,
+      "small": 0.0
+     },
+     "subtle_latency": {
+      "recall": 0.09326424870466321,
+      "cant_tell": 0.5699481865284974,
+      "no_change": 0.10362694300518134,
+      "small": 0.23316062176165803
+     }
+    },
+    "dns_recall_by_density": {
+     "sparse": 0.04152249134948097,
+     "medium": 0.39461883408071746,
+     "busy": 0.5925925925925926
+    },
+    "miss_reasons": {
+     "weak": 139,
+     "not-watched": 50,
+     "too-few": 251,
+     "unseen": 6,
+     "one-way": 4
+    },
+    "selective_time": {
+     "material": {
+      "n": 11,
+      "worse": 1,
+      "no-change": 0,
+      "cant-tell": 10,
+      "small": 0,
+      "better": 0
+     },
+     "not_material": {
+      "n": 117,
+      "worse": 0,
+      "no-change": 41,
+      "cant-tell": 71,
+      "small": 5,
+      "better": 0
+     }
+    }
+   },
+   "oracle-gate": {
+    "false_claim_rate": {
+     "all": 0.012076520252217591,
+     "none": 0.00021043771043771043,
+     "loss": 0.0006373486297004461,
+     "hold": 0.0006565988181221273,
+     "oneway": 0.07270323859881031
+    },
+    "false_alert_windows": {
+     "all": 0.06129032258064516,
+     "none": 0.001652892561983471,
+     "loss": 0.0,
+     "hold": 0.004629629629629629,
+     "oneway": 0.387434554973822
+    },
+    "abstain_rate": {
+     "all": 0.35214278080581385,
+     "none": 0.2699915824915825,
+     "loss": 0.4576163161249203,
+     "hold": 0.4156270518713066,
+     "oneway": 0.43688037012557834
+    },
+    "recall": {
+     "all": 0.531896551724138,
+     "alone": 0.5704697986577181,
+     "overlap": 0.49113475177304966,
+     "overlap_loss": 0.46,
+     "overlap_hold": 0.5212121212121212,
+     "overlap_oneway": 0.49748743718592964
+    },
+    "n_fault": {
+     "all": 1160,
+     "alone": 596,
+     "overlap": 564,
+     "overlap_loss": 200,
+     "overlap_hold": 165,
+     "overlap_oneway": 199
+    },
+    "misses": {
+     "cant-tell": 451,
+     "no-change": 36,
+     "better": 1,
+     "small": 55
+    },
+    "per_fault": {
+     "dns_down": {
+      "recall": 0.5113636363636364,
+      "cant_tell": 0.4659090909090909,
+      "no_change": 0.017045454545454544,
+      "small": 0.0
+     },
+     "dns_slow": {
+      "recall": 0.422680412371134,
+      "cant_tell": 0.520618556701031,
+      "no_change": 0.010309278350515464,
+      "small": 0.04639175257731959
+     },
+     "servfail": {
+      "recall": 0.3020833333333333,
+      "cant_tell": 0.6354166666666666,
+      "no_change": 0.0625,
+      "small": 0.0
+     },
+     "arp_storm": {
+      "recall": 0.8985507246376812,
+      "cant_tell": 0.0966183574879227,
+      "no_change": 0.004830917874396135,
+      "small": 0.0
+     },
+     "dhcp_trouble": {
+      "recall": 0.9242424242424242,
+      "cant_tell": 0.07575757575757576,
+      "no_change": 0.0,
+      "small": 0.0
+     },
+     "subtle_latency": {
+      "recall": 0.09326424870466321,
+      "cant_tell": 0.5751295336787565,
+      "no_change": 0.09326424870466321,
+      "small": 0.23834196891191708
+     }
+    },
+    "dns_recall_by_density": {
+     "sparse": 0.03806228373702422,
+     "medium": 0.40358744394618834,
+     "busy": 0.6049382716049383
+    },
+    "miss_reasons": {
+     "weak": 140,
+     "not-watched": 54,
+     "too-few": 246,
+     "unseen": 7,
+     "one-way": 4
+    },
+    "selective_time": {
+     "material": {
+      "n": 11,
+      "worse": 1,
+      "no-change": 0,
+      "cant-tell": 10,
+      "small": 0,
+      "better": 0
+     },
+     "not_material": {
+      "n": 117,
+      "worse": 0,
+      "no-change": 40,
+      "cant-tell": 72,
+      "small": 5,
+      "better": 0
+     }
+    }
+   },
+   "loss-aware": {
+    "false_claim_rate": {
+     "all": 0.0004274874425563749,
+     "none": 0.00021043771043771043,
+     "loss": 0.0006373486297004461,
+     "hold": 0.0006565988181221273,
+     "oneway": 0.0006609385327164573
+    },
+    "false_alert_windows": {
+     "all": 0.0016129032258064516,
+     "none": 0.001652892561983471,
+     "loss": 0.0,
+     "hold": 0.004629629629629629,
+     "oneway": 0.0
+    },
+    "abstain_rate": {
+     "all": 0.39414342203697766,
+     "none": 0.31607744107744107,
+     "loss": 0.35882727852135116,
+     "hold": 0.4425476034143139,
+     "oneway": 0.627230667547918
+    },
+    "recall": {
+     "all": 0.5146551724137931,
+     "alone": 0.5637583892617449,
+     "overlap": 0.4627659574468085,
+     "overlap_loss": 0.565,
+     "overlap_hold": 0.49696969696969695,
+     "overlap_oneway": 0.3316582914572864
+    },
+    "n_fault": {
+     "all": 1160,
+     "alone": 596,
+     "overlap": 564,
+     "overlap_loss": 200,
+     "overlap_hold": 165,
+     "overlap_oneway": 199
+    },
+    "misses": {
+     "cant-tell": 476,
+     "no-change": 34,
+     "better": 0,
+     "small": 53
+    },
+    "per_fault": {
+     "dns_down": {
+      "recall": 0.3181818181818182,
+      "cant_tell": 0.6590909090909091,
+      "no_change": 0.022727272727272728,
+      "small": 0.0
+     },
+     "dns_slow": {
+      "recall": 0.3917525773195876,
+      "cant_tell": 0.5567010309278351,
+      "no_change": 0.010309278350515464,
+      "small": 0.041237113402061855
+     },
+     "servfail": {
+      "recall": 0.28125,
+      "cant_tell": 0.6614583333333334,
+      "no_change": 0.057291666666666664,
+      "small": 0.0
+     },
+     "arp_storm": {
+      "recall": 0.9758454106280193,
+      "cant_tell": 0.01932367149758454,
+      "no_change": 0.004830917874396135,
+      "small": 0.0
+     },
+     "dhcp_trouble": {
+      "recall": 0.9747474747474747,
+      "cant_tell": 0.025252525252525252,
+      "no_change": 0.0,
+      "small": 0.0
+     },
+     "subtle_latency": {
+      "recall": 0.08290155440414508,
+      "cant_tell": 0.6010362694300518,
+      "no_change": 0.08290155440414508,
+      "small": 0.23316062176165803
+     }
+    },
+    "dns_recall_by_density": {
+     "sparse": 0.04498269896193772,
+     "medium": 0.32286995515695066,
+     "busy": 0.48148148148148145
+    },
+    "miss_reasons": {
+     "weak": 112,
+     "loss-unknown": 8,
+     "one-way": 160,
+     "too-few": 194,
+     "not-watched": 1,
+     "unseen": 1
+    },
+    "selective_time": {
+     "material": {
+      "n": 11,
+      "worse": 0,
+      "no-change": 0,
+      "cant-tell": 11,
+      "small": 0,
+      "better": 0
+     },
+     "not_material": {
+      "n": 117,
+      "worse": 0,
+      "no-change": 46,
+      "cant-tell": 66,
+      "small": 5,
+      "better": 0
+     }
+    }
+   },
+   "n_windows": 2400
+  },
+  {
+   "naive": {
+    "false_claim_rate": {
+     "all": 0.01979565772669221,
+     "none": 0.0018907563025210084,
+     "loss": 0.010744985673352435,
+     "hold": 0.0006269592476489029,
+     "oneway": 0.09787234042553192
+    },
+    "false_alert_windows": {
+     "all": 0.09859154929577464,
+     "none": 0.00975609756097561,
+     "loss": 0.045454545454545456,
+     "hold": 0.005076142131979695,
+     "oneway": 0.5228426395939086
+    },
+    "abstain_rate": {
+     "all": 0.26426138782460623,
+     "none": 0.2376050420168067,
+     "loss": 0.25,
+     "hold": 0.23510971786833856,
+     "oneway": 0.3817629179331307
+    },
+    "recall": {
+     "all": 0.6320201173512154,
+     "alone": 0.6547008547008547,
+     "overlap": 0.6101973684210527,
+     "overlap_loss": 0.651685393258427,
+     "overlap_hold": 0.5980861244019139,
+     "overlap_oneway": 0.5882352941176471
+    },
+    "n_fault": {
+     "all": 1193,
+     "alone": 585,
+     "overlap": 608,
+     "overlap_loss": 178,
+     "overlap_hold": 209,
+     "overlap_oneway": 221
+    },
+    "misses": {
+     "cant-tell": 328,
+     "no-change": 54,
+     "better": 1,
+     "small": 56
+    },
+    "per_fault": {
+     "dns_down": {
+      "recall": 0.6751269035532995,
+      "cant_tell": 0.30456852791878175,
+      "no_change": 0.015228426395939087,
+      "small": 0.0
+     },
+     "dns_slow": {
+      "recall": 0.6268656716417911,
+      "cant_tell": 0.35323383084577115,
+      "no_change": 0.004975124378109453,
+      "small": 0.014925373134328358
+     },
+     "servfail": {
+      "recall": 0.4444444444444444,
+      "cant_tell": 0.4675925925925926,
+      "no_change": 0.08796296296296297,
+      "small": 0.0
+     },
+     "arp_storm": {
+      "recall": 0.9947643979057592,
+      "cant_tell": 0.005235602094240838,
+      "no_change": 0.0,
+      "small": 0.0
+     },
+     "dhcp_trouble": {
+      "recall": 0.9371980676328503,
+      "cant_tell": 0.06280193236714976,
+      "no_change": 0.0,
+      "small": 0.0
+     },
+     "subtle_latency": {
+      "recall": 0.08287292817679558,
+      "cant_tell": 0.4530386740331492,
+      "no_change": 0.1712707182320442,
+      "small": 0.292817679558011
+     }
+    },
+    "dns_recall_by_density": {
+     "sparse": 0.030456852791878174,
+     "medium": 0.5110294117647058,
+     "busy": 0.6901840490797546
+    },
+    "miss_reasons": {
+     "too-few": 184,
+     "weak": 139,
+     "unseen": 5
+    },
+    "selective_time": {
+     "material": {
+      "n": 4,
+      "worse": 0,
+      "no-change": 0,
+      "cant-tell": 4,
+      "small": 0,
+      "better": 0
+     },
+     "not_material": {
+      "n": 106,
+      "worse": 0,
+      "no-change": 60,
+      "cant-tell": 42,
+      "small": 4,
+      "better": 0
+     }
+    }
+   },
+   "gate": {
+    "false_claim_rate": {
+     "all": 0.016070668369518943,
+     "none": 0.0002100840336134454,
+     "loss": 0.0,
+     "hold": 0.0,
+     "oneway": 0.0911854103343465
+    },
+    "false_alert_windows": {
+     "all": 0.08285004142502071,
+     "none": 0.0016260162601626016,
+     "loss": 0.0,
+     "hold": 0.0,
+     "oneway": 0.5025380710659898
+    },
+    "abstain_rate": {
+     "all": 0.3260962111536824,
+     "none": 0.26071428571428573,
+     "loss": 0.42048710601719197,
+     "hold": 0.36802507836990594,
+     "oneway": 0.3945288753799392
+    },
+    "recall": {
+     "all": 0.5968147527242247,
+     "alone": 0.6427350427350428,
+     "overlap": 0.5526315789473685,
+     "overlap_loss": 0.5,
+     "overlap_hold": 0.5741626794258373,
+     "overlap_oneway": 0.5746606334841629
+    },
+    "n_fault": {
+     "all": 1193,
+     "alone": 585,
+     "overlap": 608,
+     "overlap_loss": 178,
+     "overlap_hold": 209,
+     "overlap_oneway": 221
+    },
+    "misses": {
+     "cant-tell": 363,
+     "no-change": 62,
+     "better": 1,
+     "small": 55
+    },
+    "per_fault": {
+     "dns_down": {
+      "recall": 0.6294416243654822,
+      "cant_tell": 0.3401015228426396,
+      "no_change": 0.025380710659898477,
+      "small": 0.0
+     },
+     "dns_slow": {
+      "recall": 0.5870646766169154,
+      "cant_tell": 0.38308457711442784,
+      "no_change": 0.009950248756218905,
+      "small": 0.01990049751243781
+     },
+     "servfail": {
+      "recall": 0.39814814814814814,
+      "cant_tell": 0.5,
+      "no_change": 0.10185185185185185,
+      "small": 0.0
+     },
+     "arp_storm": {
+      "recall": 0.9581151832460733,
+      "cant_tell": 0.041884816753926704,
+      "no_change": 0.0,
+      "small": 0.0
+     },
+     "dhcp_trouble": {
+      "recall": 0.9130434782608695,
+      "cant_tell": 0.08695652173913043,
+      "no_change": 0.0,
+      "small": 0.0
+     },
+     "subtle_latency": {
+      "recall": 0.06629834254143646,
+      "cant_tell": 0.4696132596685083,
+      "no_change": 0.18232044198895028,
+      "small": 0.281767955801105
+     }
+    },
+    "dns_recall_by_density": {
+     "sparse": 0.025380710659898477,
+     "medium": 0.47794117647058826,
+     "busy": 0.6288343558282209
+    },
+    "miss_reasons": {
+     "too-few": 182,
+     "weak": 141,
+     "one-way": 6,
+     "not-watched": 29,
+     "unseen": 5
+    },
+    "selective_time": {
+     "material": {
+      "n": 4,
+      "worse": 0,
+      "no-change": 0,
+      "cant-tell": 4,
+      "small": 0,
+      "better": 0
+     },
+     "not_material": {
+      "n": 106,
+      "worse": 0,
+      "no-change": 45,
+      "cant-tell": 58,
+      "small": 3,
+      "better": 0
+     }
+    }
+   },
+   "oracle-gate": {
+    "false_claim_rate": {
+     "all": 0.016496381438910173,
+     "none": 0.0002100840336134454,
+     "loss": 0.0,
+     "hold": 0.0,
+     "oneway": 0.09361702127659574
+    },
+    "false_alert_windows": {
+     "all": 0.08367854183927093,
+     "none": 0.0016260162601626016,
+     "loss": 0.0,
+     "hold": 0.0,
+     "oneway": 0.5076142131979695
+    },
+    "abstain_rate": {
+     "all": 0.31832694763729247,
+     "none": 0.25063025210084033,
+     "loss": 0.4154727793696275,
+     "hold": 0.36363636363636365,
+     "oneway": 0.3878419452887538
+    },
+    "recall": {
+     "all": 0.6001676445934618,
+     "alone": 0.6410256410256411,
+     "overlap": 0.5608552631578947,
+     "overlap_loss": 0.5280898876404494,
+     "overlap_hold": 0.5741626794258373,
+     "overlap_oneway": 0.5746606334841629
+    },
+    "n_fault": {
+     "all": 1193,
+     "alone": 585,
+     "overlap": 608,
+     "overlap_loss": 178,
+     "overlap_hold": 209,
+     "overlap_oneway": 221
+    },
+    "misses": {
+     "cant-tell": 359,
+     "no-change": 60,
+     "better": 1,
+     "small": 57
+    },
+    "per_fault": {
+     "dns_down": {
+      "recall": 0.6395939086294417,
+      "cant_tell": 0.3248730964467005,
+      "no_change": 0.030456852791878174,
+      "small": 0.0
+     },
+     "dns_slow": {
+      "recall": 0.582089552238806,
+      "cant_tell": 0.3781094527363184,
+      "no_change": 0.009950248756218905,
+      "small": 0.029850746268656716
+     },
+     "servfail": {
+      "recall": 0.4027777777777778,
+      "cant_tell": 0.5,
+      "no_change": 0.09722222222222222,
+      "small": 0.0
+     },
+     "arp_storm": {
+      "recall": 0.9633507853403142,
+      "cant_tell": 0.03664921465968586,
+      "no_change": 0.0,
+      "small": 0.0
+     },
+     "dhcp_trouble": {
+      "recall": 0.9130434782608695,
+      "cant_tell": 0.08695652173913043,
+      "no_change": 0.0,
+      "small": 0.0
+     },
+     "subtle_latency": {
+      "recall": 0.0718232044198895,
+      "cant_tell": 0.47513812154696133,
+      "no_change": 0.1712707182320442,
+      "small": 0.281767955801105
+     }
+    },
+    "dns_recall_by_density": {
+     "sparse": 0.025380710659898477,
+     "medium": 0.48161764705882354,
+     "busy": 0.6349693251533742
+    },
+    "miss_reasons": {
+     "too-few": 178,
+     "weak": 132,
+     "one-way": 6,
+     "not-watched": 38,
+     "unseen": 5
+    },
+    "selective_time": {
+     "material": {
+      "n": 4,
+      "worse": 0,
+      "no-change": 0,
+      "cant-tell": 4,
+      "small": 0,
+      "better": 0
+     },
+     "not_material": {
+      "n": 106,
+      "worse": 0,
+      "no-change": 48,
+      "cant-tell": 54,
+      "small": 4,
+      "better": 0
+     }
+    }
+   },
+   "loss-aware": {
+    "false_claim_rate": {
+     "all": 0.00021285653469561516,
+     "none": 0.0002100840336134454,
+     "loss": 0.0007163323782234957,
+     "hold": 0.0,
+     "oneway": 0.0
+    },
+    "false_alert_windows": {
+     "all": 0.0016570008285004142,
+     "none": 0.0016260162601626016,
+     "loss": 0.005050505050505051,
+     "hold": 0.0,
+     "oneway": 0.0
+    },
+    "abstain_rate": {
+     "all": 0.36323967645806726,
+     "none": 0.2901260504201681,
+     "loss": 0.3159025787965616,
+     "hold": 0.37366771159874607,
+     "oneway": 0.6048632218844985
+    },
+    "recall": {
+     "all": 0.575859178541492,
+     "alone": 0.6341880341880342,
+     "overlap": 0.5197368421052632,
+     "overlap_loss": 0.6067415730337079,
+     "overlap_hold": 0.5789473684210527,
+     "overlap_oneway": 0.3936651583710407
+    },
+    "n_fault": {
+     "all": 1193,
+     "alone": 585,
+     "overlap": 608,
+     "overlap_loss": 178,
+     "overlap_hold": 209,
+     "overlap_oneway": 221
+    },
+    "misses": {
+     "cant-tell": 402,
+     "no-change": 52,
+     "better": 0,
+     "small": 52
+    },
+    "per_fault": {
+     "dns_down": {
+      "recall": 0.41116751269035534,
+      "cant_tell": 0.5431472081218274,
+      "no_change": 0.04568527918781726,
+      "small": 0.0
+     },
+     "dns_slow": {
+      "recall": 0.6019900497512438,
+      "cant_tell": 0.3781094527363184,
+      "no_change": 0.004975124378109453,
+      "small": 0.014925373134328358
+     },
+     "servfail": {
+      "recall": 0.4027777777777778,
+      "cant_tell": 0.5277777777777778,
+      "no_change": 0.06944444444444445,
+      "small": 0.0
+     },
+     "arp_storm": {
+      "recall": 1.0,
+      "cant_tell": 0.0,
+      "no_change": 0.0,
+      "small": 0.0
+     },
+     "dhcp_trouble": {
+      "recall": 0.9420289855072463,
+      "cant_tell": 0.057971014492753624,
+      "no_change": 0.0,
+      "small": 0.0
+     },
+     "subtle_latency": {
+      "recall": 0.06629834254143646,
+      "cant_tell": 0.5138121546961326,
+      "no_change": 0.14917127071823205,
+      "small": 0.27071823204419887
+     }
+    },
+    "dns_recall_by_density": {
+     "sparse": 0.025380710659898477,
+     "medium": 0.43014705882352944,
+     "busy": 0.549079754601227
+    },
+    "miss_reasons": {
+     "one-way": 157,
+     "weak": 99,
+     "too-few": 134,
+     "loss-unknown": 11,
+     "unseen": 1
+    },
+    "selective_time": {
+     "material": {
+      "n": 4,
+      "worse": 0,
+      "no-change": 0,
+      "cant-tell": 4,
+      "small": 0,
+      "better": 0
+     },
+     "not_material": {
+      "n": 106,
+      "worse": 0,
+      "no-change": 57,
+      "cant-tell": 44,
+      "small": 5,
+      "better": 0
+     }
+    }
+   },
+   "n_windows": 2400
+  },
+  {
+   "naive": {
+    "false_claim_rate": {
+     "all": 0.016313559322033898,
+     "none": 0.0010336985734959686,
+     "loss": 0.004160887656033287,
+     "hold": 0.0006544502617801048,
+     "oneway": 0.08695652173913043
+    },
+    "false_alert_windows": {
+     "all": 0.08978583196046129,
+     "none": 0.008116883116883116,
+     "loss": 0.025,
+     "hold": 0.005208333333333333,
+     "oneway": 0.47572815533980584
+    },
+    "abstain_rate": {
+     "all": 0.29036016949152543,
+     "none": 0.2662807525325615,
+     "loss": 0.24271844660194175,
+     "hold": 0.2846858638743455,
+     "oneway": 0.40906307409675446
+    },
+    "recall": {
+     "all": 0.5876897133220911,
+     "alone": 0.6137123745819398,
+     "overlap": 0.5612244897959183,
+     "overlap_loss": 0.609375,
+     "overlap_hold": 0.515625,
+     "overlap_oneway": 0.5588235294117647
+    },
+    "n_fault": {
+     "all": 1186,
+     "alone": 598,
+     "overlap": 588,
+     "overlap_loss": 192,
+     "overlap_hold": 192,
+     "overlap_oneway": 204
+    },
+    "misses": {
+     "cant-tell": 405,
+     "no-change": 51,
+     "better": 0,
+     "small": 33
+    },
+    "per_fault": {
+     "dns_down": {
+      "recall": 0.578125,
+      "cant_tell": 0.3802083333333333,
+      "no_change": 0.041666666666666664,
+      "small": 0.0
+     },
+     "dns_slow": {
+      "recall": 0.48130841121495327,
+      "cant_tell": 0.4953271028037383,
+      "no_change": 0.004672897196261682,
+      "small": 0.018691588785046728
+     },
+     "servfail": {
+      "recall": 0.41379310344827586,
+      "cant_tell": 0.4827586206896552,
+      "no_change": 0.10344827586206896,
+      "small": 0.0
+     },
+     "arp_storm": {
+      "recall": 0.9795918367346939,
+      "cant_tell": 0.01020408163265306,
+      "no_change": 0.01020408163265306,
+      "small": 0.0
+     },
+     "dhcp_trouble": {
+      "recall": 0.9484536082474226,
+      "cant_tell": 0.05154639175257732,
+      "no_change": 0.0,
+      "small": 0.0
+     },
+     "subtle_latency": {
+      "recall": 0.12299465240641712,
+      "cant_tell": 0.6203208556149733,
+      "no_change": 0.10160427807486631,
+      "small": 0.15508021390374332
+     }
+    },
+    "dns_recall_by_density": {
+     "sparse": 0.07371794871794872,
+     "medium": 0.5086206896551724,
+     "busy": 0.7142857142857143
+    },
+    "miss_reasons": {
+     "weak": 167,
+     "too-few": 235,
+     "unseen": 3
+    },
+    "selective_time": {
+     "material": {
+      "n": 3,
+      "worse": 0,
+      "no-change": 0,
+      "cant-tell": 3,
+      "small": 0,
+      "better": 0
+     },
+     "not_material": {
+      "n": 109,
+      "worse": 0,
+      "no-change": 55,
+      "cant-tell": 48,
+      "small": 6,
+      "better": 0
+     }
+    }
+   },
+   "gate": {
+    "false_claim_rate": {
+     "all": 0.014194915254237288,
+     "none": 0.0002067397146991937,
+     "loss": 0.0,
+     "hold": 0.0,
+     "oneway": 0.08144519289650949
+    },
+    "false_alert_windows": {
+     "all": 0.07825370675453047,
+     "none": 0.0016233766233766235,
+     "loss": 0.0,
+     "hold": 0.0,
+     "oneway": 0.4563106796116505
+    },
+    "abstain_rate": {
+     "all": 0.3597457627118644,
+     "none": 0.2863345048583833,
+     "loss": 0.4507628294036061,
+     "hold": 0.4339005235602094,
+     "oneway": 0.42743417023882424
+    },
+    "recall": {
+     "all": 0.5404721753794266,
+     "alone": 0.5936454849498328,
+     "overlap": 0.48639455782312924,
+     "overlap_loss": 0.4375,
+     "overlap_hold": 0.4739583333333333,
+     "overlap_oneway": 0.5441176470588235
+    },
+    "n_fault": {
+     "all": 1186,
+     "alone": 598,
+     "overlap": 588,
+     "overlap_loss": 192,
+     "overlap_hold": 192,
+     "overlap_oneway": 204
+    },
+    "misses": {
+     "cant-tell": 459,
+     "no-change": 56,
+     "better": 1,
+     "small": 29
+    },
+    "per_fault": {
+     "dns_down": {
+      "recall": 0.53125,
+      "cant_tell": 0.4166666666666667,
+      "no_change": 0.046875,
+      "small": 0.0
+     },
+     "dns_slow": {
+      "recall": 0.40186915887850466,
+      "cant_tell": 0.5654205607476636,
+      "no_change": 0.009345794392523364,
+      "small": 0.02336448598130841
+     },
+     "servfail": {
+      "recall": 0.3793103448275862,
+      "cant_tell": 0.5123152709359606,
+      "no_change": 0.10837438423645321,
+      "small": 0.0
+     },
+     "arp_storm": {
+      "recall": 0.9183673469387755,
+      "cant_tell": 0.07142857142857142,
+      "no_change": 0.01020408163265306,
+      "small": 0.0
+     },
+     "dhcp_trouble": {
+      "recall": 0.9020618556701031,
+      "cant_tell": 0.0979381443298969,
+      "no_change": 0.0,
+      "small": 0.0
+     },
+     "subtle_latency": {
+      "recall": 0.11229946524064172,
+      "cant_tell": 0.6470588235294118,
+      "no_change": 0.11229946524064172,
+      "small": 0.12834224598930483
+     }
+    },
+    "dns_recall_by_density": {
+     "sparse": 0.05448717948717949,
+     "medium": 0.46551724137931033,
+     "busy": 0.6388888888888888
+    },
+    "miss_reasons": {
+     "weak": 162,
+     "not-watched": 60,
+     "too-few": 229,
+     "one-way": 5,
+     "unseen": 3
+    },
+    "selective_time": {
+     "material": {
+      "n": 3,
+      "worse": 0,
+      "no-change": 0,
+      "cant-tell": 3,
+      "small": 0,
+      "better": 0
+     },
+     "not_material": {
+      "n": 109,
+      "worse": 0,
+      "no-change": 37,
+      "cant-tell": 65,
+      "small": 7,
+      "better": 0
+     }
+    }
+   },
+   "oracle-gate": {
+    "false_claim_rate": {
+     "all": 0.014088983050847458,
+     "none": 0.0002067397146991937,
+     "loss": 0.0,
+     "hold": 0.0,
+     "oneway": 0.08083282302510716
+    },
+    "false_alert_windows": {
+     "all": 0.07825370675453047,
+     "none": 0.0016233766233766235,
+     "loss": 0.0,
+     "hold": 0.0,
+     "oneway": 0.4563106796116505
+    },
+    "abstain_rate": {
+     "all": 0.35264830508474576,
+     "none": 0.2795120942733099,
+     "loss": 0.4486823855755895,
+     "hold": 0.41950261780104714,
+     "oneway": 0.4219228413962033
+    },
+    "recall": {
+     "all": 0.5489038785834739,
+     "alone": 0.6003344481605352,
+     "overlap": 0.4965986394557823,
+     "overlap_loss": 0.4583333333333333,
+     "overlap_hold": 0.484375,
+     "overlap_oneway": 0.5441176470588235
+    },
+    "n_fault": {
+     "all": 1186,
+     "alone": 598,
+     "overlap": 588,
+     "overlap_loss": 192,
+     "overlap_hold": 192,
+     "overlap_oneway": 204
+    },
+    "misses": {
+     "cant-tell": 450,
+     "no-change": 55,
+     "better": 0,
+     "small": 30
+    },
+    "per_fault": {
+     "dns_down": {
+      "recall": 0.5520833333333334,
+      "cant_tell": 0.4010416666666667,
+      "no_change": 0.046875,
+      "small": 0.0
+     },
+     "dns_slow": {
+      "recall": 0.411214953271028,
+      "cant_tell": 0.5654205607476636,
+      "no_change": 0.004672897196261682,
+      "small": 0.018691588785046728
+     },
+     "servfail": {
+      "recall": 0.3842364532019704,
+      "cant_tell": 0.5073891625615764,
+      "no_change": 0.10837438423645321,
+      "small": 0.0
+     },
+     "arp_storm": {
+      "recall": 0.9336734693877551,
+      "cant_tell": 0.05612244897959184,
+      "no_change": 0.01020408163265306,
+      "small": 0.0
+     },
+     "dhcp_trouble": {
+      "recall": 0.9020618556701031,
+      "cant_tell": 0.0979381443298969,
+      "no_change": 0.0,
+      "small": 0.0
+     },
+     "subtle_latency": {
+      "recall": 0.11229946524064172,
+      "cant_tell": 0.6363636363636364,
+      "no_change": 0.11229946524064172,
+      "small": 0.13903743315508021
+     }
+    },
+    "dns_recall_by_density": {
+     "sparse": 0.057692307692307696,
+     "medium": 0.47413793103448276,
+     "busy": 0.6547619047619048
+    },
+    "miss_reasons": {
+     "weak": 163,
+     "not-watched": 56,
+     "too-few": 223,
+     "one-way": 5,
+     "unseen": 3
+    },
+    "selective_time": {
+     "material": {
+      "n": 3,
+      "worse": 0,
+      "no-change": 0,
+      "cant-tell": 3,
+      "small": 0,
+      "better": 0
+     },
+     "not_material": {
+      "n": 109,
+      "worse": 0,
+      "no-change": 42,
+      "cant-tell": 62,
+      "small": 5,
+      "better": 0
+     }
+    }
+   },
+   "loss-aware": {
+    "false_claim_rate": {
+     "all": 0.000211864406779661,
+     "none": 0.0004134794293983874,
+     "loss": 0.0,
+     "hold": 0.0,
+     "oneway": 0.0
+    },
+    "false_alert_windows": {
+     "all": 0.0016474464579901153,
+     "none": 0.003246753246753247,
+     "loss": 0.0,
+     "hold": 0.0,
+     "oneway": 0.0
+    },
+    "abstain_rate": {
+     "all": 0.3836864406779661,
+     "none": 0.3146578457721728,
+     "loss": 0.3217753120665742,
+     "hold": 0.4325916230366492,
+     "oneway": 0.5970606246172688
+    },
+    "recall": {
+     "all": 0.5362563237774031,
+     "alone": 0.5836120401337793,
+     "overlap": 0.4880952380952381,
+     "overlap_loss": 0.578125,
+     "overlap_hold": 0.4895833333333333,
+     "overlap_oneway": 0.4019607843137255
+    },
+    "n_fault": {
+     "all": 1186,
+     "alone": 598,
+     "overlap": 588,
+     "overlap_loss": 192,
+     "overlap_hold": 192,
+     "overlap_oneway": 204
+    },
+    "misses": {
+     "cant-tell": 477,
+     "no-change": 45,
+     "better": 0,
+     "small": 28
+    },
+    "per_fault": {
+     "dns_down": {
+      "recall": 0.375,
+      "cant_tell": 0.59375,
+      "no_change": 0.03125,
+      "small": 0.0
+     },
+     "dns_slow": {
+      "recall": 0.42990654205607476,
+      "cant_tell": 0.5560747663551402,
+      "no_change": 0.009345794392523364,
+      "small": 0.004672897196261682
+     },
+     "servfail": {
+      "recall": 0.35960591133004927,
+      "cant_tell": 0.5665024630541872,
+      "no_change": 0.07389162561576355,
+      "small": 0.0
+     },
+     "arp_storm": {
+      "recall": 0.9846938775510204,
+      "cant_tell": 0.00510204081632653,
+      "no_change": 0.01020408163265306,
+      "small": 0.0
+     },
+     "dhcp_trouble": {
+      "recall": 0.9536082474226805,
+      "cant_tell": 0.04639175257731959,
+      "no_change": 0.0,
+      "small": 0.0
+     },
+     "subtle_latency": {
+      "recall": 0.11229946524064172,
+      "cant_tell": 0.6363636363636364,
+      "no_change": 0.10695187165775401,
+      "small": 0.1443850267379679
+     }
+    },
+    "dns_recall_by_density": {
+     "sparse": 0.057692307692307696,
+     "medium": 0.4051724137931034,
+     "busy": 0.5793650793650794
+    },
+    "miss_reasons": {
+     "weak": 137,
+     "one-way": 144,
+     "too-few": 181,
+     "loss-unknown": 14,
+     "not-watched": 1
+    },
+    "selective_time": {
+     "material": {
+      "n": 3,
+      "worse": 0,
+      "no-change": 0,
+      "cant-tell": 3,
+      "small": 0,
+      "better": 0
+     },
+     "not_material": {
+      "n": 109,
+      "worse": 0,
+      "no-change": 55,
+      "cant-tell": 48,
+      "small": 6,
+      "better": 0
+     }
+    }
+   },
+   "n_windows": 2400
+  },
+  {
+   "naive": {
+    "false_claim_rate": {
+     "all": 0.017092191005234483,
+     "none": 0.0021953896816684962,
+     "loss": 0.0034106412005457027,
+     "hold": 0.0006027727546714888,
+     "oneway": 0.08566329565734682
+    },
+    "false_alert_windows": {
+     "all": 0.08848080133555926,
+     "none": 0.008726003490401396,
+     "loss": 0.014634146341463415,
+     "hold": 0.0,
+     "oneway": 0.44545454545454544
+    },
+    "abstain_rate": {
+     "all": 0.3420574724922551,
+     "none": 0.31833150384193193,
+     "loss": 0.30559345156889495,
+     "hold": 0.33634719710669075,
+     "oneway": 0.44378346222486614
+    },
+    "recall": {
+     "all": 0.5266222961730449,
+     "alone": 0.5103448275862069,
+     "overlap": 0.5418006430868167,
+     "overlap_loss": 0.5641025641025641,
+     "overlap_hold": 0.5221238938053098,
+     "overlap_oneway": 0.5422885572139303
+    },
+    "n_fault": {
+     "all": 1202,
+     "alone": 580,
+     "overlap": 622,
+     "overlap_loss": 195,
+     "overlap_hold": 226,
+     "overlap_oneway": 201
+    },
+    "misses": {
+     "cant-tell": 473,
+     "no-change": 49,
+     "better": 2,
+     "small": 45
+    },
+    "per_fault": {
+     "dns_down": {
+      "recall": 0.43349753694581283,
+      "cant_tell": 0.5123152709359606,
+      "no_change": 0.04433497536945813,
+      "small": 0.0
+     },
+     "dns_slow": {
+      "recall": 0.4504950495049505,
+      "cant_tell": 0.5099009900990099,
+      "no_change": 0.0,
+      "small": 0.039603960396039604
+     },
+     "servfail": {
+      "recall": 0.2898550724637681,
+      "cant_tell": 0.6376811594202898,
+      "no_change": 0.07246376811594203,
+      "small": 0.0
+     },
+     "arp_storm": {
+      "recall": 0.9834254143646409,
+      "cant_tell": 0.011049723756906077,
+      "no_change": 0.0055248618784530384,
+      "small": 0.0
+     },
+     "dhcp_trouble": {
+      "recall": 0.9234449760765551,
+      "cant_tell": 0.06698564593301436,
+      "no_change": 0.009569377990430622,
+      "small": 0.0
+     },
+     "subtle_latency": {
+      "recall": 0.115,
+      "cant_tell": 0.59,
+      "no_change": 0.11,
+      "small": 0.185
+     }
+    },
+    "dns_recall_by_density": {
+     "sparse": 0.053763440860215055,
+     "medium": 0.3824884792626728,
+     "busy": 0.7130044843049327
+    },
+    "miss_reasons": {
+     "too-few": 309,
+     "weak": 158,
+     "unseen": 6
+    },
+    "selective_time": {
+     "material": {
+      "n": 5,
+      "worse": 0,
+      "no-change": 0,
+      "cant-tell": 5,
+      "small": 0,
+      "better": 0
+     },
+     "not_material": {
+      "n": 107,
+      "worse": 0,
+      "no-change": 43,
+      "cant-tell": 61,
+      "small": 3,
+      "better": 0
+     }
+    }
+   },
+   "gate": {
+    "false_claim_rate": {
+     "all": 0.013887405191753018,
+     "none": 0.0002195389681668496,
+     "loss": 0.0,
+     "hold": 0.0,
+     "oneway": 0.07674003569303986
+    },
+    "false_alert_windows": {
+     "all": 0.07762938230383973,
+     "none": 0.0017452006980802793,
+     "loss": 0.0,
+     "hold": 0.0,
+     "oneway": 0.41818181818181815
+    },
+    "abstain_rate": {
+     "all": 0.40604636256810167,
+     "none": 0.3413830954994512,
+     "loss": 0.4863574351978172,
+     "hold": 0.4593128390596745,
+     "oneway": 0.45865556216537773
+    },
+    "recall": {
+     "all": 0.4933444259567388,
+     "alone": 0.49482758620689654,
+     "overlap": 0.4919614147909968,
+     "overlap_loss": 0.4153846153846154,
+     "overlap_hold": 0.5221238938053098,
+     "overlap_oneway": 0.5323383084577115
+    },
+    "n_fault": {
+     "all": 1202,
+     "alone": 580,
+     "overlap": 622,
+     "overlap_loss": 195,
+     "overlap_hold": 226,
+     "overlap_oneway": 201
+    },
+    "misses": {
+     "cant-tell": 512,
+     "no-change": 51,
+     "better": 2,
+     "small": 44
+    },
+    "per_fault": {
+     "dns_down": {
+      "recall": 0.39901477832512317,
+      "cant_tell": 0.5467980295566502,
+      "no_change": 0.04433497536945813,
+      "small": 0.0
+     },
+     "dns_slow": {
+      "recall": 0.400990099009901,
+      "cant_tell": 0.5495049504950495,
+      "no_change": 0.0049504950495049506,
+      "small": 0.04455445544554455
+     },
+     "servfail": {
+      "recall": 0.26570048309178745,
+      "cant_tell": 0.6618357487922706,
+      "no_change": 0.07246376811594203,
+      "small": 0.0
+     },
+     "arp_storm": {
+      "recall": 0.9668508287292817,
+      "cant_tell": 0.03314917127071823,
+      "no_change": 0.0,
+      "small": 0.0
+     },
+     "dhcp_trouble": {
+      "recall": 0.8660287081339713,
+      "cant_tell": 0.1339712918660287,
+      "no_change": 0.0,
+      "small": 0.0
+     },
+     "subtle_latency": {
+      "recall": 0.1,
+      "cant_tell": 0.595,
+      "no_change": 0.13,
+      "small": 0.175
+     }
+    },
+    "dns_recall_by_density": {
+     "sparse": 0.04032258064516129,
+     "medium": 0.35023041474654376,
+     "busy": 0.6547085201793722
+    },
+    "miss_reasons": {
+     "too-few": 302,
+     "weak": 142,
+     "not-watched": 52,
+     "unseen": 7,
+     "one-way": 9
+    },
+    "selective_time": {
+     "material": {
+      "n": 5,
+      "worse": 0,
+      "no-change": 0,
+      "cant-tell": 5,
+      "small": 0,
+      "better": 0
+     },
+     "not_material": {
+      "n": 107,
+      "worse": 0,
+      "no-change": 34,
+      "cant-tell": 71,
+      "small": 2,
+      "better": 0
+     }
+    }
+   },
+   "oracle-gate": {
+    "false_claim_rate": {
+     "all": 0.01431470996688388,
+     "none": 0.0004390779363336992,
+     "loss": 0.0,
+     "hold": 0.0,
+     "oneway": 0.07852468768590125
+    },
+    "false_alert_windows": {
+     "all": 0.07929883138564274,
+     "none": 0.0017452006980802793,
+     "loss": 0.0,
+     "hold": 0.0,
+     "oneway": 0.42727272727272725
+    },
+    "abstain_rate": {
+     "all": 0.3962183527400919,
+     "none": 0.3301866081229418,
+     "loss": 0.4815825375170532,
+     "hold": 0.4448462929475588,
+     "oneway": 0.4527067221891731
+    },
+    "recall": {
+     "all": 0.5016638935108153,
+     "alone": 0.5,
+     "overlap": 0.5032154340836013,
+     "overlap_loss": 0.4307692307692308,
+     "overlap_hold": 0.5309734513274337,
+     "overlap_oneway": 0.5422885572139303
+    },
+    "n_fault": {
+     "all": 1202,
+     "alone": 580,
+     "overlap": 622,
+     "overlap_loss": 195,
+     "overlap_hold": 226,
+     "overlap_oneway": 201
+    },
+    "misses": {
+     "cant-tell": 504,
+     "no-change": 47,
+     "better": 2,
+     "small": 46
+    },
+    "per_fault": {
+     "dns_down": {
+      "recall": 0.4039408866995074,
+      "cant_tell": 0.5369458128078818,
+      "no_change": 0.04926108374384237,
+      "small": 0.0
+     },
+     "dns_slow": {
+      "recall": 0.41089108910891087,
+      "cant_tell": 0.5396039603960396,
+      "no_change": 0.0049504950495049506,
+      "small": 0.04455445544554455
+     },
+     "servfail": {
+      "recall": 0.27053140096618356,
+      "cant_tell": 0.6618357487922706,
+      "no_change": 0.06763285024154589,
+      "small": 0.0
+     },
+     "arp_storm": {
+      "recall": 0.9613259668508287,
+      "cant_tell": 0.03867403314917127,
+      "no_change": 0.0,
+      "small": 0.0
+     },
+     "dhcp_trouble": {
+      "recall": 0.8947368421052632,
+      "cant_tell": 0.10526315789473684,
+      "no_change": 0.0,
+      "small": 0.0
+     },
+     "subtle_latency": {
+      "recall": 0.105,
+      "cant_tell": 0.6,
+      "no_change": 0.11,
+      "small": 0.185
+     }
+    },
+    "dns_recall_by_density": {
+     "sparse": 0.043010752688172046,
+     "medium": 0.3548387096774194,
+     "busy": 0.6681614349775785
+    },
+    "miss_reasons": {
+     "too-few": 296,
+     "weak": 148,
+     "not-watched": 44,
+     "unseen": 7,
+     "one-way": 9
+    },
+    "selective_time": {
+     "material": {
+      "n": 5,
+      "worse": 0,
+      "no-change": 0,
+      "cant-tell": 5,
+      "small": 0,
+      "better": 0
+     },
+     "not_material": {
+      "n": 107,
+      "worse": 0,
+      "no-change": 36,
+      "cant-tell": 69,
+      "small": 2,
+      "better": 0
+     }
+    }
+   },
+   "loss-aware": {
+    "false_claim_rate": {
+     "all": 0.00021365238756543105,
+     "none": 0.0002195389681668496,
+     "loss": 0.0006821282401091405,
+     "hold": 0.0,
+     "oneway": 0.0
+    },
+    "false_alert_windows": {
+     "all": 0.001669449081803005,
+     "none": 0.0017452006980802793,
+     "loss": 0.004878048780487805,
+     "hold": 0.0,
+     "oneway": 0.0
+    },
+    "abstain_rate": {
+     "all": 0.42292490118577075,
+     "none": 0.3613611416026345,
+     "loss": 0.35607094133697137,
+     "hold": 0.458710066305003,
+     "oneway": 0.6127305175490779
+    },
+    "recall": {
+     "all": 0.49417637271214643,
+     "alone": 0.49137931034482757,
+     "overlap": 0.4967845659163987,
+     "overlap_loss": 0.5538461538461539,
+     "overlap_hold": 0.5309734513274337,
+     "overlap_oneway": 0.40298507462686567
+    },
+    "n_fault": {
+     "all": 1202,
+     "alone": 580,
+     "overlap": 622,
+     "overlap_loss": 195,
+     "overlap_hold": 226,
+     "overlap_oneway": 201
+    },
+    "misses": {
+     "cant-tell": 519,
+     "no-change": 46,
+     "better": 0,
+     "small": 43
+    },
+    "per_fault": {
+     "dns_down": {
+      "recall": 0.2955665024630542,
+      "cant_tell": 0.6551724137931034,
+      "no_change": 0.04926108374384237,
+      "small": 0.0
+     },
+     "dns_slow": {
+      "recall": 0.400990099009901,
+      "cant_tell": 0.5594059405940595,
+      "no_change": 0.0,
+      "small": 0.039603960396039604
+     },
+     "servfail": {
+      "recall": 0.25120772946859904,
+      "cant_tell": 0.6859903381642513,
+      "no_change": 0.06280193236714976,
+      "small": 0.0
+     },
+     "arp_storm": {
+      "recall": 1.0,
+      "cant_tell": 0.0,
+      "no_change": 0.0,
+      "small": 0.0
+     },
+     "dhcp_trouble": {
+      "recall": 0.9425837320574163,
+      "cant_tell": 0.05741626794258373,
+      "no_change": 0.0,
+      "small": 0.0
+     },
+     "subtle_latency": {
+      "recall": 0.115,
+      "cant_tell": 0.595,
+      "no_change": 0.115,
+      "small": 0.175
+     }
+    },
+    "dns_recall_by_density": {
+     "sparse": 0.0456989247311828,
+     "medium": 0.2995391705069124,
+     "busy": 0.600896860986547
+    },
+    "miss_reasons": {
+     "too-few": 236,
+     "weak": 128,
+     "one-way": 148,
+     "loss-unknown": 7
+    },
+    "selective_time": {
+     "material": {
+      "n": 5,
+      "worse": 0,
+      "no-change": 0,
+      "cant-tell": 5,
+      "small": 0,
+      "better": 0
+     },
+     "not_material": {
+      "n": 107,
+      "worse": 0,
+      "no-change": 42,
+      "cant-tell": 62,
+      "small": 3,
+      "better": 0
+     }
+    }
+   },
+   "n_windows": 2400
+  },
+  {
+   "naive": {
+    "false_claim_rate": {
+     "all": 0.01721170395869191,
+     "none": 0.0012795905310300703,
+     "loss": 0.007432432432432433,
+     "hold": 0.0,
+     "oneway": 0.09675236806495263
+    },
+    "false_alert_windows": {
+     "all": 0.0972338642078793,
+     "none": 0.00825082508250825,
+     "loss": 0.04060913705583756,
+     "hold": 0.0,
+     "oneway": 0.544973544973545
+    },
+    "abstain_rate": {
+     "all": 0.2609724612736661,
+     "none": 0.22947323523139262,
+     "loss": 0.23986486486486486,
+     "hold": 0.25833838690115224,
+     "oneway": 0.38497970230040596
+    },
+    "recall": {
+     "all": 0.5824357912178956,
+     "alone": 0.5902777777777778,
+     "overlap": 0.5752773375594294,
+     "overlap_loss": 0.6153846153846154,
+     "overlap_hold": 0.5892857142857143,
+     "overlap_oneway": 0.510752688172043
+    },
+    "n_fault": {
+     "all": 1207,
+     "alone": 576,
+     "overlap": 631,
+     "overlap_loss": 221,
+     "overlap_hold": 224,
+     "overlap_oneway": 186
+    },
+    "misses": {
+     "cant-tell": 388,
+     "no-change": 56,
+     "better": 0,
+     "small": 60
+    },
+    "per_fault": {
+     "dns_down": {
+      "recall": 0.5636363636363636,
+      "cant_tell": 0.4090909090909091,
+      "no_change": 0.02727272727272727,
+      "small": 0.0
+     },
+     "dns_slow": {
+      "recall": 0.4788732394366197,
+      "cant_tell": 0.4694835680751174,
+      "no_change": 0.0,
+      "small": 0.051643192488262914
+     },
+     "servfail": {
+      "recall": 0.41621621621621624,
+      "cant_tell": 0.5135135135135135,
+      "no_change": 0.07027027027027027,
+      "small": 0.0
+     },
+     "arp_storm": {
+      "recall": 0.9951456310679612,
+      "cant_tell": 0.0048543689320388345,
+      "no_change": 0.0,
+      "small": 0.0
+     },
+     "dhcp_trouble": {
+      "recall": 0.9621621621621622,
+      "cant_tell": 0.03783783783783784,
+      "no_change": 0.0,
+      "small": 0.0
+     },
+     "subtle_latency": {
+      "recall": 0.08585858585858586,
+      "cant_tell": 0.4797979797979798,
+      "no_change": 0.18686868686868688,
+      "small": 0.2474747474747475
+     }
+    },
+    "dns_recall_by_density": {
+     "sparse": 0.08303249097472924,
+     "medium": 0.4306569343065693,
+     "busy": 0.6754716981132075
+    },
+    "miss_reasons": {
+     "too-few": 203,
+     "weak": 178,
+     "unseen": 7
+    },
+    "selective_time": {
+     "material": {
+      "n": 3,
+      "worse": 0,
+      "no-change": 0,
+      "cant-tell": 3,
+      "small": 0,
+      "better": 0
+     },
+     "not_material": {
+      "n": 128,
+      "worse": 1,
+      "no-change": 61,
+      "cant-tell": 58,
+      "small": 8,
+      "better": 0
+     }
+    }
+   },
+   "gate": {
+    "false_claim_rate": {
+     "all": 0.014414802065404474,
+     "none": 0.00021326508850501172,
+     "loss": 0.0006756756756756757,
+     "hold": 0.0,
+     "oneway": 0.08930987821380243
+    },
+    "false_alert_windows": {
+     "all": 0.08130762782900251,
+     "none": 0.0016501650165016502,
+     "loss": 0.0,
+     "hold": 0.0,
+     "oneway": 0.5079365079365079
+    },
+    "abstain_rate": {
+     "all": 0.33154044750430295,
+     "none": 0.24824056301983366,
+     "loss": 0.46418918918918917,
+     "hold": 0.38265615524560337,
+     "oneway": 0.4059539918809202
+    },
+    "recall": {
+     "all": 0.5385252692626347,
+     "alone": 0.5729166666666666,
+     "overlap": 0.5071315372424723,
+     "overlap_loss": 0.45701357466063347,
+     "overlap_hold": 0.5848214285714286,
+     "overlap_oneway": 0.4731182795698925
+    },
+    "n_fault": {
+     "all": 1207,
+     "alone": 576,
+     "overlap": 631,
+     "overlap_loss": 221,
+     "overlap_hold": 224,
+     "overlap_oneway": 186
+    },
+    "misses": {
+     "cant-tell": 447,
+     "no-change": 54,
+     "better": 0,
+     "small": 56
+    },
+    "per_fault": {
+     "dns_down": {
+      "recall": 0.5,
+      "cant_tell": 0.4681818181818182,
+      "no_change": 0.031818181818181815,
+      "small": 0.0
+     },
+     "dns_slow": {
+      "recall": 0.41784037558685444,
+      "cant_tell": 0.5164319248826291,
+      "no_change": 0.009389671361502348,
+      "small": 0.056338028169014086
+     },
+     "servfail": {
+      "recall": 0.3837837837837838,
+      "cant_tell": 0.5621621621621622,
+      "no_change": 0.05405405405405406,
+      "small": 0.0
+     },
+     "arp_storm": {
+      "recall": 0.9466019417475728,
+      "cant_tell": 0.05339805825242718,
+      "no_change": 0.0,
+      "small": 0.0
+     },
+     "dhcp_trouble": {
+      "recall": 0.9135135135135135,
+      "cant_tell": 0.08648648648648649,
+      "no_change": 0.0,
+      "small": 0.0
+     },
+     "subtle_latency": {
+      "recall": 0.08080808080808081,
+      "cant_tell": 0.5202020202020202,
+      "no_change": 0.17676767676767677,
+      "small": 0.2222222222222222
+     }
+    },
+    "dns_recall_by_density": {
+     "sparse": 0.07581227436823104,
+     "medium": 0.38321167883211676,
+     "busy": 0.6037735849056604
+    },
+    "miss_reasons": {
+     "too-few": 195,
+     "not-watched": 66,
+     "weak": 172,
+     "unseen": 5,
+     "one-way": 9
+    },
+    "selective_time": {
+     "material": {
+      "n": 3,
+      "worse": 0,
+      "no-change": 0,
+      "cant-tell": 3,
+      "small": 0,
+      "better": 0
+     },
+     "not_material": {
+      "n": 128,
+      "worse": 0,
+      "no-change": 47,
+      "cant-tell": 77,
+      "small": 4,
+      "better": 0
+     }
+    }
+   },
+   "oracle-gate": {
+    "false_claim_rate": {
+     "all": 0.014845094664371773,
+     "none": 0.00021326508850501172,
+     "loss": 0.0006756756756756757,
+     "hold": 0.0,
+     "oneway": 0.09201623815967523
+    },
+    "false_alert_windows": {
+     "all": 0.08298407376362113,
+     "none": 0.0016501650165016502,
+     "loss": 0.0,
+     "hold": 0.0,
+     "oneway": 0.5185185185185185
+    },
+    "abstain_rate": {
+     "all": 0.3225043029259897,
+     "none": 0.24034975474514822,
+     "loss": 0.4594594594594595,
+     "hold": 0.36628259551243175,
+     "oneway": 0.39715832205683355
+    },
+    "recall": {
+     "all": 0.5468102734051367,
+     "alone": 0.5746527777777778,
+     "overlap": 0.5213946117274167,
+     "overlap_loss": 0.46153846153846156,
+     "overlap_hold": 0.6026785714285714,
+     "overlap_oneway": 0.4946236559139785
+    },
+    "n_fault": {
+     "all": 1207,
+     "alone": 576,
+     "overlap": 631,
+     "overlap_loss": 221,
+     "overlap_hold": 224,
+     "overlap_oneway": 186
+    },
+    "misses": {
+     "cant-tell": 440,
+     "no-change": 51,
+     "better": 0,
+     "small": 56
+    },
+    "per_fault": {
+     "dns_down": {
+      "recall": 0.5136363636363637,
+      "cant_tell": 0.4681818181818182,
+      "no_change": 0.01818181818181818,
+      "small": 0.0
+     },
+     "dns_slow": {
+      "recall": 0.4272300469483568,
+      "cant_tell": 0.5164319248826291,
+      "no_change": 0.004694835680751174,
+      "small": 0.051643192488262914
+     },
+     "servfail": {
+      "recall": 0.3945945945945946,
+      "cant_tell": 0.5405405405405406,
+      "no_change": 0.06486486486486487,
+      "small": 0.0
+     },
+     "arp_storm": {
+      "recall": 0.9514563106796117,
+      "cant_tell": 0.04854368932038835,
+      "no_change": 0.0,
+      "small": 0.0
+     },
+     "dhcp_trouble": {
+      "recall": 0.918918918918919,
+      "cant_tell": 0.08108108108108109,
+      "no_change": 0.0,
+      "small": 0.0
+     },
+     "subtle_latency": {
+      "recall": 0.08585858585858586,
+      "cant_tell": 0.5151515151515151,
+      "no_change": 0.1717171717171717,
+      "small": 0.22727272727272727
+     }
+    },
+    "dns_recall_by_density": {
+     "sparse": 0.07942238267148015,
+     "medium": 0.39416058394160586,
+     "busy": 0.6188679245283019
+    },
+    "miss_reasons": {
+     "too-few": 192,
+     "not-watched": 63,
+     "weak": 170,
+     "unseen": 6,
+     "one-way": 9
+    },
+    "selective_time": {
+     "material": {
+      "n": 3,
+      "worse": 0,
+      "no-change": 0,
+      "cant-tell": 3,
+      "small": 0,
+      "better": 0
+     },
+     "not_material": {
+      "n": 128,
+      "worse": 0,
+      "no-change": 49,
+      "cant-tell": 75,
+      "small": 4,
+      "better": 0
+     }
+    }
+   },
+   "loss-aware": {
+    "false_claim_rate": {
+     "all": 0.0002151462994836489,
+     "none": 0.00021326508850501172,
+     "loss": 0.0006756756756756757,
+     "hold": 0.0,
+     "oneway": 0.0
+    },
+    "false_alert_windows": {
+     "all": 0.0016764459346186086,
+     "none": 0.0016501650165016502,
+     "loss": 0.005076142131979695,
+     "hold": 0.0,
+     "oneway": 0.0
+    },
+    "abstain_rate": {
+     "all": 0.35628227194492257,
+     "none": 0.2830027724461506,
+     "loss": 0.2959459459459459,
+     "hold": 0.38932686476652517,
+     "oneway": 0.6123139377537212
+    },
+    "recall": {
+     "all": 0.5352112676056338,
+     "alone": 0.5729166666666666,
+     "overlap": 0.5007923930269413,
+     "overlap_loss": 0.5882352941176471,
+     "overlap_hold": 0.5625,
+     "overlap_oneway": 0.3225806451612903
+    },
+    "n_fault": {
+     "all": 1207,
+     "alone": 576,
+     "overlap": 631,
+     "overlap_loss": 221,
+     "overlap_hold": 224,
+     "overlap_oneway": 186
+    },
+    "misses": {
+     "cant-tell": 461,
+     "no-change": 45,
+     "better": 0,
+     "small": 55
+    },
+    "per_fault": {
+     "dns_down": {
+      "recall": 0.36818181818181817,
+      "cant_tell": 0.6045454545454545,
+      "no_change": 0.02727272727272727,
+      "small": 0.0
+     },
+     "dns_slow": {
+      "recall": 0.4413145539906103,
+      "cant_tell": 0.5258215962441315,
+      "no_change": 0.0,
+      "small": 0.03286384976525822
+     },
+     "servfail": {
+      "recall": 0.3675675675675676,
+      "cant_tell": 0.5945945945945946,
+      "no_change": 0.03783783783783784,
+      "small": 0.0
+     },
+     "arp_storm": {
+      "recall": 0.9951456310679612,
+      "cant_tell": 0.0048543689320388345,
+      "no_change": 0.0,
+      "small": 0.0
+     },
+     "dhcp_trouble": {
+      "recall": 0.9837837837837838,
+      "cant_tell": 0.016216216216216217,
+      "no_change": 0.0,
+      "small": 0.0
+     },
+     "subtle_latency": {
+      "recall": 0.08080808080808081,
+      "cant_tell": 0.5151515151515151,
+      "no_change": 0.16161616161616163,
+      "small": 0.24242424242424243
+     }
+    },
+    "dns_recall_by_density": {
+     "sparse": 0.05776173285198556,
+     "medium": 0.3467153284671533,
+     "busy": 0.5584905660377358
+    },
+    "miss_reasons": {
+     "too-few": 151,
+     "one-way": 163,
+     "loss-unknown": 6,
+     "weak": 140,
+     "unseen": 1
+    },
+    "selective_time": {
+     "material": {
+      "n": 3,
+      "worse": 0,
+      "no-change": 0,
+      "cant-tell": 3,
+      "small": 0,
+      "better": 0
+     },
+     "not_material": {
+      "n": 128,
+      "worse": 1,
+      "no-change": 58,
+      "cant-tell": 61,
+      "small": 8,
+      "better": 0
+     }
+    }
+   },
+   "n_windows": 2400
+  },
+  {
+   "naive": {
+    "false_claim_rate": {
+     "all": 0.013954486904250751,
+     "none": 0.0025252525252525255,
+     "loss": 0.002902757619738752,
+     "hold": 0.0006406149903907751,
+     "oneway": 0.06953846153846154
+    },
+    "false_alert_windows": {
+     "all": 0.07172643869891576,
+     "none": 0.006472491909385114,
+     "loss": 0.017142857142857144,
+     "hold": 0.005050505050505051,
+     "oneway": 0.375
+    },
+    "abstain_rate": {
+     "all": 0.3267496779733791,
+     "none": 0.2882996632996633,
+     "loss": 0.3243831640058055,
+     "hold": 0.3254324151185138,
+     "oneway": 0.44246153846153846
+    },
+    "recall": {
+     "all": 0.5320566194837635,
+     "alone": 0.5542168674698795,
+     "overlap": 0.5112903225806451,
+     "overlap_loss": 0.5186915887850467,
+     "overlap_hold": 0.5175879396984925,
+     "overlap_oneway": 0.4975845410628019
+    },
+    "n_fault": {
+     "all": 1201,
+     "alone": 581,
+     "overlap": 620,
+     "overlap_loss": 214,
+     "overlap_hold": 199,
+     "overlap_oneway": 207
+    },
+    "misses": {
+     "cant-tell": 471,
+     "no-change": 39,
+     "better": 3,
+     "small": 49
+    },
+    "per_fault": {
+     "dns_down": {
+      "recall": 0.5050505050505051,
+      "cant_tell": 0.47474747474747475,
+      "no_change": 0.005050505050505051,
+      "small": 0.0
+     },
+     "dns_slow": {
+      "recall": 0.4155844155844156,
+      "cant_tell": 0.5367965367965368,
+      "no_change": 0.008658008658008658,
+      "small": 0.03896103896103896
+     },
+     "servfail": {
+      "recall": 0.25142857142857145,
+      "cant_tell": 0.6742857142857143,
+      "no_change": 0.07428571428571429,
+      "small": 0.0
+     },
+     "arp_storm": {
+      "recall": 0.9947916666666666,
+      "cant_tell": 0.0,
+      "no_change": 0.005208333333333333,
+      "small": 0.0
+     },
+     "dhcp_trouble": {
+      "recall": 0.949748743718593,
+      "cant_tell": 0.05025125628140704,
+      "no_change": 0.0,
+      "small": 0.0
+     },
+     "subtle_latency": {
+      "recall": 0.09223300970873786,
+      "cant_tell": 0.6067961165048543,
+      "no_change": 0.10679611650485436,
+      "small": 0.1941747572815534
+     }
+    },
+    "dns_recall_by_density": {
+     "sparse": 0.06432748538011696,
+     "medium": 0.4533333333333333,
+     "busy": 0.6011904761904762
+    },
+    "miss_reasons": {
+     "too-few": 296,
+     "weak": 171,
+     "unseen": 4
+    },
+    "selective_time": {
+     "material": {
+      "n": 5,
+      "worse": 0,
+      "no-change": 0,
+      "cant-tell": 5,
+      "small": 0,
+      "better": 0
+     },
+     "not_material": {
+      "n": 109,
+      "worse": 0,
+      "no-change": 41,
+      "cant-tell": 64,
+      "small": 4,
+      "better": 0
+     }
+    }
+   },
+   "gate": {
+    "false_claim_rate": {
+     "all": 0.011700300558179477,
+     "none": 0.0008417508417508417,
+     "loss": 0.000725689404934688,
+     "hold": 0.0,
+     "oneway": 0.064
+    },
+    "false_alert_windows": {
+     "all": 0.06422018348623854,
+     "none": 0.006472491909385114,
+     "loss": 0.005714285714285714,
+     "hold": 0.0,
+     "oneway": 0.34615384615384615
+    },
+    "abstain_rate": {
+     "all": 0.3875053671103478,
+     "none": 0.31165824915824913,
+     "loss": 0.4818577648766328,
+     "hold": 0.4554772581678411,
+     "oneway": 0.464
+    },
+    "recall": {
+     "all": 0.4945878434637802,
+     "alone": 0.5387263339070568,
+     "overlap": 0.4532258064516129,
+     "overlap_loss": 0.3925233644859813,
+     "overlap_hold": 0.49246231155778897,
+     "overlap_oneway": 0.4782608695652174
+    },
+    "n_fault": {
+     "all": 1201,
+     "alone": 581,
+     "overlap": 620,
+     "overlap_loss": 214,
+     "overlap_hold": 199,
+     "overlap_oneway": 207
+    },
+    "misses": {
+     "cant-tell": 516,
+     "no-change": 46,
+     "better": 2,
+     "small": 43
+    },
+    "per_fault": {
+     "dns_down": {
+      "recall": 0.42424242424242425,
+      "cant_tell": 0.5353535353535354,
+      "no_change": 0.030303030303030304,
+      "small": 0.0
+     },
+     "dns_slow": {
+      "recall": 0.36363636363636365,
+      "cant_tell": 0.5887445887445888,
+      "no_change": 0.021645021645021644,
+      "small": 0.025974025974025976
+     },
+     "servfail": {
+      "recall": 0.22857142857142856,
+      "cant_tell": 0.68,
+      "no_change": 0.09142857142857143,
+      "small": 0.0
+     },
+     "arp_storm": {
+      "recall": 0.953125,
+      "cant_tell": 0.046875,
+      "no_change": 0.0,
+      "small": 0.0
+     },
+     "dhcp_trouble": {
+      "recall": 0.9195979899497487,
+      "cant_tell": 0.08040201005025126,
+      "no_change": 0.0,
+      "small": 0.0
+     },
+     "subtle_latency": {
+      "recall": 0.0970873786407767,
+      "cant_tell": 0.6310679611650486,
+      "no_change": 0.09223300970873786,
+      "small": 0.1796116504854369
+     }
+    },
+    "dns_recall_by_density": {
+     "sparse": 0.043859649122807015,
+     "medium": 0.39666666666666667,
+     "busy": 0.5595238095238095
+    },
+    "miss_reasons": {
+     "too-few": 291,
+     "not-watched": 52,
+     "weak": 160,
+     "unseen": 5,
+     "one-way": 8
+    },
+    "selective_time": {
+     "material": {
+      "n": 5,
+      "worse": 0,
+      "no-change": 0,
+      "cant-tell": 5,
+      "small": 0,
+      "better": 0
+     },
+     "not_material": {
+      "n": 109,
+      "worse": 1,
+      "no-change": 29,
+      "cant-tell": 76,
+      "small": 3,
+      "better": 0
+     }
+    }
+   },
+   "oracle-gate": {
+    "false_claim_rate": {
+     "all": 0.01180764276513525,
+     "none": 0.0008417508417508417,
+     "loss": 0.0,
+     "hold": 0.0006406149903907751,
+     "oneway": 0.06461538461538462
+    },
+    "false_alert_windows": {
+     "all": 0.061718098415346125,
+     "none": 0.003236245954692557,
+     "loss": 0.0,
+     "hold": 0.005050505050505051,
+     "oneway": 0.34134615384615385
+    },
+    "abstain_rate": {
+     "all": 0.3809574924860455,
+     "none": 0.30513468013468015,
+     "loss": 0.4847605224963715,
+     "hold": 0.43946188340807174,
+     "oneway": 0.4584615384615385
+    },
+    "recall": {
+     "all": 0.4995836802664446,
+     "alone": 0.5456110154905336,
+     "overlap": 0.45645161290322583,
+     "overlap_loss": 0.3925233644859813,
+     "overlap_hold": 0.5025125628140703,
+     "overlap_oneway": 0.4782608695652174
+    },
+    "n_fault": {
+     "all": 1201,
+     "alone": 581,
+     "overlap": 620,
+     "overlap_loss": 214,
+     "overlap_hold": 199,
+     "overlap_oneway": 207
+    },
+    "misses": {
+     "cant-tell": 513,
+     "no-change": 42,
+     "better": 2,
+     "small": 44
+    },
+    "per_fault": {
+     "dns_down": {
+      "recall": 0.45454545454545453,
+      "cant_tell": 0.5151515151515151,
+      "no_change": 0.020202020202020204,
+      "small": 0.0
+     },
+     "dns_slow": {
+      "recall": 0.37662337662337664,
+      "cant_tell": 0.5757575757575758,
+      "no_change": 0.012987012987012988,
+      "small": 0.03463203463203463
+     },
+     "servfail": {
+      "recall": 0.22857142857142856,
+      "cant_tell": 0.68,
+      "no_change": 0.09142857142857143,
+      "small": 0.0
+     },
+     "arp_storm": {
+      "recall": 0.9427083333333334,
+      "cant_tell": 0.057291666666666664,
+      "no_change": 0.0,
+      "small": 0.0
+     },
+     "dhcp_trouble": {
+      "recall": 0.914572864321608,
+      "cant_tell": 0.08542713567839195,
+      "no_change": 0.0,
+      "small": 0.0
+     },
+     "subtle_latency": {
+      "recall": 0.0970873786407767,
+      "cant_tell": 0.6359223300970874,
+      "no_change": 0.09223300970873786,
+      "small": 0.17475728155339806
+     }
+    },
+    "dns_recall_by_density": {
+     "sparse": 0.05847953216374269,
+     "medium": 0.41,
+     "busy": 0.5595238095238095
+    },
+    "miss_reasons": {
+     "too-few": 284,
+     "not-watched": 59,
+     "weak": 158,
+     "unseen": 4,
+     "one-way": 8
+    },
+    "selective_time": {
+     "material": {
+      "n": 5,
+      "worse": 0,
+      "no-change": 0,
+      "cant-tell": 5,
+      "small": 0,
+      "better": 0
+     },
+     "not_material": {
+      "n": 109,
+      "worse": 0,
+      "no-change": 28,
+      "cant-tell": 78,
+      "small": 3,
+      "better": 0
+     }
+    }
+   },
+   "loss-aware": {
+    "false_claim_rate": {
+     "all": 0.0007513954486904251,
+     "none": 0.0008417508417508417,
+     "loss": 0.000725689404934688,
+     "hold": 0.0006406149903907751,
+     "oneway": 0.0006153846153846154
+    },
+    "false_alert_windows": {
+     "all": 0.004170141784820684,
+     "none": 0.003236245954692557,
+     "loss": 0.005714285714285714,
+     "hold": 0.005050505050505051,
+     "oneway": 0.004807692307692308
+    },
+    "abstain_rate": {
+     "all": 0.4167024474023186,
+     "none": 0.3449074074074074,
+     "loss": 0.397677793904209,
+     "hold": 0.45227418321588725,
+     "oneway": 0.6086153846153847
+    },
+    "recall": {
+     "all": 0.48959200666111574,
+     "alone": 0.5266781411359724,
+     "overlap": 0.45483870967741935,
+     "overlap_loss": 0.4953271028037383,
+     "overlap_hold": 0.48743718592964824,
+     "overlap_oneway": 0.38164251207729466
+    },
+    "n_fault": {
+     "all": 1201,
+     "alone": 581,
+     "overlap": 620,
+     "overlap_loss": 214,
+     "overlap_hold": 199,
+     "overlap_oneway": 207
+    },
+    "misses": {
+     "cant-tell": 536,
+     "no-change": 33,
+     "better": 0,
+     "small": 44
+    },
+    "per_fault": {
+     "dns_down": {
+      "recall": 0.3333333333333333,
+      "cant_tell": 0.6515151515151515,
+      "no_change": 0.015151515151515152,
+      "small": 0.0
+     },
+     "dns_slow": {
+      "recall": 0.37662337662337664,
+      "cant_tell": 0.5800865800865801,
+      "no_change": 0.004329004329004329,
+      "small": 0.03896103896103896
+     },
+     "servfail": {
+      "recall": 0.21142857142857144,
+      "cant_tell": 0.7371428571428571,
+      "no_change": 0.05142857142857143,
+      "small": 0.0
+     },
+     "arp_storm": {
+      "recall": 1.0,
+      "cant_tell": 0.0,
+      "no_change": 0.0,
+      "small": 0.0
+     },
+     "dhcp_trouble": {
+      "recall": 0.964824120603015,
+      "cant_tell": 0.035175879396984924,
+      "no_change": 0.0,
+      "small": 0.0
+     },
+     "subtle_latency": {
+      "recall": 0.06796116504854369,
+      "cant_tell": 0.6650485436893204,
+      "no_change": 0.0970873786407767,
+      "small": 0.16990291262135923
+     }
+    },
+    "dns_recall_by_density": {
+     "sparse": 0.038011695906432746,
+     "medium": 0.38666666666666666,
+     "busy": 0.44642857142857145
+    },
+    "miss_reasons": {
+     "too-few": 227,
+     "one-way": 171,
+     "weak": 127,
+     "loss-unknown": 11
+    },
+    "selective_time": {
+     "material": {
+      "n": 5,
+      "worse": 0,
+      "no-change": 0,
+      "cant-tell": 5,
+      "small": 0,
+      "better": 0
+     },
+     "not_material": {
+      "n": 109,
+      "worse": 0,
+      "no-change": 37,
+      "cant-tell": 68,
+      "small": 4,
+      "better": 0
+     }
+    }
+   },
+   "n_windows": 2400
+  },
+  {
+   "naive": {
+    "false_claim_rate": {
+     "all": 0.016687790452049007,
+     "none": 0.0010412328196584756,
+     "loss": 0.007857142857142858,
+     "hold": 0.0013029315960912053,
+     "oneway": 0.08087810514153669
+    },
+    "false_alert_windows": {
+     "all": 0.0908353609083536,
+     "none": 0.006600660066006601,
+     "loss": 0.03125,
+     "hold": 0.010050251256281407,
+     "oneway": 0.423728813559322
+    },
+    "abstain_rate": {
+     "all": 0.33037600337980566,
+     "none": 0.30133277800916286,
+     "loss": 0.2978571428571429,
+     "hold": 0.31205211726384363,
+     "oneway": 0.4534950895436164
+    },
+    "recall": {
+     "all": 0.5098543273350471,
+     "alone": 0.5404040404040404,
+     "overlap": 0.4781849912739965,
+     "overlap_loss": 0.5177664974619289,
+     "overlap_hold": 0.4946236559139785,
+     "overlap_oneway": 0.42105263157894735
+    },
+    "n_fault": {
+     "all": 1167,
+     "alone": 594,
+     "overlap": 573,
+     "overlap_loss": 197,
+     "overlap_hold": 186,
+     "overlap_oneway": 190
+    },
+    "misses": {
+     "cant-tell": 486,
+     "no-change": 40,
+     "better": 2,
+     "small": 44
+    },
+    "per_fault": {
+     "dns_down": {
+      "recall": 0.37158469945355194,
+      "cant_tell": 0.6010928961748634,
+      "no_change": 0.01639344262295082,
+      "small": 0.0
+     },
+     "dns_slow": {
+      "recall": 0.3469387755102041,
+      "cant_tell": 0.5918367346938775,
+      "no_change": 0.00510204081632653,
+      "small": 0.05612244897959184
+     },
+     "servfail": {
+      "recall": 0.3058252427184466,
+      "cant_tell": 0.6310679611650486,
+      "no_change": 0.06310679611650485,
+      "small": 0.0
+     },
+     "arp_storm": {
+      "recall": 0.9896907216494846,
+      "cant_tell": 0.0,
+      "no_change": 0.010309278350515464,
+      "small": 0.0
+     },
+     "dhcp_trouble": {
+      "recall": 0.941747572815534,
+      "cant_tell": 0.05825242718446602,
+      "no_change": 0.0,
+      "small": 0.0
+     },
+     "subtle_latency": {
+      "recall": 0.054945054945054944,
+      "cant_tell": 0.6483516483516484,
+      "no_change": 0.11538461538461539,
+      "small": 0.1813186813186813
+     }
+    },
+    "dns_recall_by_density": {
+     "sparse": 0.072,
+     "medium": 0.34177215189873417,
+     "busy": 0.6516129032258065
+    },
+    "miss_reasons": {
+     "too-few": 287,
+     "weak": 196,
+     "unseen": 3
+    },
+    "selective_time": {
+     "material": {
+      "n": 5,
+      "worse": 0,
+      "no-change": 0,
+      "cant-tell": 5,
+      "small": 0,
+      "better": 0
+     },
+     "not_material": {
+      "n": 113,
+      "worse": 0,
+      "no-change": 37,
+      "cant-tell": 71,
+      "small": 5,
+      "better": 0
+     }
+    }
+   },
+   "gate": {
+    "false_claim_rate": {
+     "all": 0.013730460498521335,
+     "none": 0.0,
+     "loss": 0.0007142857142857143,
+     "hold": 0.0006514657980456026,
+     "oneway": 0.07394569612940496
+    },
+    "false_alert_windows": {
+     "all": 0.07542579075425791,
+     "none": 0.0,
+     "loss": 0.0,
+     "hold": 0.0,
+     "oneway": 0.3940677966101695
+    },
+    "abstain_rate": {
+     "all": 0.3943810730882974,
+     "none": 0.3234069137859225,
+     "loss": 0.4764285714285714,
+     "hold": 0.4592833876221498,
+     "oneway": 0.4673599075678798
+    },
+    "recall": {
+     "all": 0.47472150814053127,
+     "alone": 0.5252525252525253,
+     "overlap": 0.4223385689354276,
+     "overlap_loss": 0.41624365482233505,
+     "overlap_hold": 0.46774193548387094,
+     "overlap_oneway": 0.38421052631578945
+    },
+    "n_fault": {
+     "all": 1167,
+     "alone": 594,
+     "overlap": 573,
+     "overlap_loss": 197,
+     "overlap_hold": 186,
+     "overlap_oneway": 190
+    },
+    "misses": {
+     "cant-tell": 528,
+     "no-change": 45,
+     "better": 1,
+     "small": 39
+    },
+    "per_fault": {
+     "dns_down": {
+      "recall": 0.3333333333333333,
+      "cant_tell": 0.6284153005464481,
+      "no_change": 0.03278688524590164,
+      "small": 0.0
+     },
+     "dns_slow": {
+      "recall": 0.30612244897959184,
+      "cant_tell": 0.6326530612244898,
+      "no_change": 0.01020408163265306,
+      "small": 0.05102040816326531
+     },
+     "servfail": {
+      "recall": 0.27184466019417475,
+      "cant_tell": 0.6553398058252428,
+      "no_change": 0.07281553398058252,
+      "small": 0.0
+     },
+     "arp_storm": {
+      "recall": 0.9381443298969072,
+      "cant_tell": 0.05670103092783505,
+      "no_change": 0.005154639175257732,
+      "small": 0.0
+     },
+     "dhcp_trouble": {
+      "recall": 0.8932038834951457,
+      "cant_tell": 0.10679611650485436,
+      "no_change": 0.0,
+      "small": 0.0
+     },
+     "subtle_latency": {
+      "recall": 0.06043956043956044,
+      "cant_tell": 0.6648351648351648,
+      "no_change": 0.11538461538461539,
+      "small": 0.15934065934065933
+     }
+    },
+    "dns_recall_by_density": {
+     "sparse": 0.06133333333333333,
+     "medium": 0.3206751054852321,
+     "busy": 0.5741935483870968
+    },
+    "miss_reasons": {
+     "too-few": 283,
+     "weak": 187,
+     "unseen": 1,
+     "not-watched": 46,
+     "one-way": 11
+    },
+    "selective_time": {
+     "material": {
+      "n": 5,
+      "worse": 0,
+      "no-change": 0,
+      "cant-tell": 5,
+      "small": 0,
+      "better": 0
+     },
+     "not_material": {
+      "n": 113,
+      "worse": 0,
+      "no-change": 28,
+      "cant-tell": 80,
+      "small": 5,
+      "better": 0
+     }
+    }
+   },
+   "oracle-gate": {
+    "false_claim_rate": {
+     "all": 0.014047317279256443,
+     "none": 0.0,
+     "loss": 0.0007142857142857143,
+     "hold": 0.0006514657980456026,
+     "oneway": 0.07567879838243789
+    },
+    "false_alert_windows": {
+     "all": 0.0770478507704785,
+     "none": 0.0,
+     "loss": 0.0,
+     "hold": 0.0,
+     "oneway": 0.4025423728813559
+    },
+    "abstain_rate": {
+     "all": 0.3858259400084495,
+     "none": 0.31382757184506455,
+     "loss": 0.47,
+     "hold": 0.4482084690553746,
+     "oneway": 0.4621606008087811
+    },
+    "recall": {
+     "all": 0.480719794344473,
+     "alone": 0.5353535353535354,
+     "overlap": 0.42408376963350786,
+     "overlap_loss": 0.41116751269035534,
+     "overlap_hold": 0.478494623655914,
+     "overlap_oneway": 0.38421052631578945
+    },
+    "n_fault": {
+     "all": 1167,
+     "alone": 594,
+     "overlap": 573,
+     "overlap_loss": 197,
+     "overlap_hold": 186,
+     "overlap_oneway": 190
+    },
+    "misses": {
+     "cant-tell": 524,
+     "no-change": 40,
+     "better": 1,
+     "small": 41
+    },
+    "per_fault": {
+     "dns_down": {
+      "recall": 0.33879781420765026,
+      "cant_tell": 0.6284153005464481,
+      "no_change": 0.0273224043715847,
+      "small": 0.0
+     },
+     "dns_slow": {
+      "recall": 0.32142857142857145,
+      "cant_tell": 0.6173469387755102,
+      "no_change": 0.01020408163265306,
+      "small": 0.05102040816326531
+     },
+     "servfail": {
+      "recall": 0.28640776699029125,
+      "cant_tell": 0.6456310679611651,
+      "no_change": 0.06796116504854369,
+      "small": 0.0
+     },
+     "arp_storm": {
+      "recall": 0.9329896907216495,
+      "cant_tell": 0.06701030927835051,
+      "no_change": 0.0,
+      "small": 0.0
+     },
+     "dhcp_trouble": {
+      "recall": 0.8980582524271845,
+      "cant_tell": 0.10194174757281553,
+      "no_change": 0.0,
+      "small": 0.0
+     },
+     "subtle_latency": {
+      "recall": 0.06043956043956044,
+      "cant_tell": 0.6648351648351648,
+      "no_change": 0.1043956043956044,
+      "small": 0.17032967032967034
+     }
+    },
+    "dns_recall_by_density": {
+     "sparse": 0.06666666666666667,
+     "medium": 0.32489451476793246,
+     "busy": 0.6
+    },
+    "miss_reasons": {
+     "not-watched": 48,
+     "too-few": 279,
+     "weak": 185,
+     "unseen": 1,
+     "one-way": 11
+    },
+    "selective_time": {
+     "material": {
+      "n": 5,
+      "worse": 0,
+      "no-change": 0,
+      "cant-tell": 5,
+      "small": 0,
+      "better": 0
+     },
+     "not_material": {
+      "n": 113,
+      "worse": 0,
+      "no-change": 28,
+      "cant-tell": 80,
+      "small": 5,
+      "better": 0
+     }
+    }
+   },
+   "loss-aware": {
+    "false_claim_rate": {
+     "all": 0.0005280946345585128,
+     "none": 0.0,
+     "loss": 0.0014285714285714286,
+     "hold": 0.001954397394136808,
+     "oneway": 0.0
+    },
+    "false_alert_windows": {
+     "all": 0.0016220600162206002,
+     "none": 0.0,
+     "loss": 0.0,
+     "hold": 0.010050251256281407,
+     "oneway": 0.0
+    },
+    "abstain_rate": {
+     "all": 0.421525137304605,
+     "none": 0.35276967930029157,
+     "loss": 0.37285714285714283,
+     "hold": 0.46123778501628665,
+     "oneway": 0.6164067013287118
+    },
+    "recall": {
+     "all": 0.480719794344473,
+     "alone": 0.5235690235690236,
+     "overlap": 0.4363001745200698,
+     "overlap_loss": 0.5126903553299492,
+     "overlap_hold": 0.4838709677419355,
+     "overlap_oneway": 0.3105263157894737
+    },
+    "n_fault": {
+     "all": 1167,
+     "alone": 594,
+     "overlap": 573,
+     "overlap_loss": 197,
+     "overlap_hold": 186,
+     "overlap_oneway": 190
+    },
+    "misses": {
+     "cant-tell": 536,
+     "no-change": 29,
+     "better": 0,
+     "small": 41
+    },
+    "per_fault": {
+     "dns_down": {
+      "recall": 0.26229508196721313,
+      "cant_tell": 0.726775956284153,
+      "no_change": 0.01092896174863388,
+      "small": 0.0
+     },
+     "dns_slow": {
+      "recall": 0.3112244897959184,
+      "cant_tell": 0.6326530612244898,
+      "no_change": 0.00510204081632653,
+      "small": 0.05102040816326531
+     },
+     "servfail": {
+      "recall": 0.2815533980582524,
+      "cant_tell": 0.6844660194174758,
+      "no_change": 0.03398058252427184,
+      "small": 0.0
+     },
+     "arp_storm": {
+      "recall": 0.9896907216494846,
+      "cant_tell": 0.010309278350515464,
+      "no_change": 0.0,
+      "small": 0.0
+     },
+     "dhcp_trouble": {
+      "recall": 0.941747572815534,
+      "cant_tell": 0.05825242718446602,
+      "no_change": 0.0,
+      "small": 0.0
+     },
+     "subtle_latency": {
+      "recall": 0.04395604395604396,
+      "cant_tell": 0.6813186813186813,
+      "no_change": 0.1043956043956044,
+      "small": 0.17032967032967034
+     }
+    },
+    "dns_recall_by_density": {
+     "sparse": 0.056,
+     "medium": 0.2911392405063291,
+     "busy": 0.5483870967741935
+    },
+    "miss_reasons": {
+     "weak": 155,
+     "one-way": 163,
+     "too-few": 211,
+     "loss-unknown": 5,
+     "unseen": 2
+    },
+    "selective_time": {
+     "material": {
+      "n": 5,
+      "worse": 0,
+      "no-change": 0,
+      "cant-tell": 5,
+      "small": 0,
+      "better": 0
+     },
+     "not_material": {
+      "n": 113,
+      "worse": 0,
+      "no-change": 36,
+      "cant-tell": 73,
+      "small": 4,
+      "better": 0
+     }
+    }
+   },
+   "n_windows": 2400
+  },
+  {
+   "naive": {
+    "false_claim_rate": {
+     "all": 0.013894826849080803,
+     "none": 0.0014830508474576272,
+     "loss": 0.004888268156424581,
+     "hold": 0.0017341040462427746,
+     "oneway": 0.07666214382632293
+    },
+    "false_alert_windows": {
+     "all": 0.06827643630308076,
+     "none": 0.004846526655896607,
+     "loss": 0.025,
+     "hold": 0.009569377990430622,
+     "oneway": 0.4161849710982659
+    },
+    "abstain_rate": {
+     "all": 0.2861265498076101,
+     "none": 0.261864406779661,
+     "loss": 0.24720670391061453,
+     "hold": 0.27976878612716766,
+     "oneway": 0.4090909090909091
+    },
+    "recall": {
+     "all": 0.5496246872393661,
+     "alone": 0.5729349736379613,
+     "overlap": 0.5285714285714286,
+     "overlap_loss": 0.5473684210526316,
+     "overlap_hold": 0.5129310344827587,
+     "overlap_oneway": 0.5288461538461539
+    },
+    "n_fault": {
+     "all": 1199,
+     "alone": 569,
+     "overlap": 630,
+     "overlap_loss": 190,
+     "overlap_hold": 232,
+     "overlap_oneway": 208
+    },
+    "misses": {
+     "cant-tell": 453,
+     "no-change": 47,
+     "better": 2,
+     "small": 38
+    },
+    "per_fault": {
+     "dns_down": {
+      "recall": 0.46919431279620855,
+      "cant_tell": 0.5071090047393365,
+      "no_change": 0.014218009478672985,
+      "small": 0.0
+     },
+     "dns_slow": {
+      "recall": 0.4,
+      "cant_tell": 0.555,
+      "no_change": 0.0,
+      "small": 0.045
+     },
+     "servfail": {
+      "recall": 0.3516483516483517,
+      "cant_tell": 0.5714285714285714,
+      "no_change": 0.07692307692307693,
+      "small": 0.0
+     },
+     "arp_storm": {
+      "recall": 0.9858490566037735,
+      "cant_tell": 0.0,
+      "no_change": 0.014150943396226415,
+      "small": 0.0
+     },
+     "dhcp_trouble": {
+      "recall": 0.9554455445544554,
+      "cant_tell": 0.04455445544554455,
+      "no_change": 0.0,
+      "small": 0.0
+     },
+     "subtle_latency": {
+      "recall": 0.07291666666666667,
+      "cant_tell": 0.6354166666666666,
+      "no_change": 0.140625,
+      "small": 0.15104166666666666
+     }
+    },
+    "dns_recall_by_density": {
+     "sparse": 0.05202312138728324,
+     "medium": 0.4393305439330544,
+     "busy": 0.67
+    },
+    "miss_reasons": {
+     "too-few": 268,
+     "weak": 178,
+     "unseen": 7
+    },
+    "selective_time": {
+     "material": {
+      "n": 6,
+      "worse": 0,
+      "no-change": 0,
+      "cant-tell": 6,
+      "small": 0,
+      "better": 0
+     },
+     "not_material": {
+      "n": 104,
+      "worse": 0,
+      "no-change": 51,
+      "cant-tell": 47,
+      "small": 5,
+      "better": 1
+     }
+    }
+   },
+   "gate": {
+    "false_claim_rate": {
+     "all": 0.011543394613082514,
+     "none": 0.0,
+     "loss": 0.0006983240223463687,
+     "hold": 0.0017341040462427746,
+     "oneway": 0.07055630936227951
+    },
+    "false_alert_windows": {
+     "all": 0.05661948376353039,
+     "none": 0.0,
+     "loss": 0.005,
+     "hold": 0.004784688995215311,
+     "oneway": 0.3815028901734104
+    },
+    "abstain_rate": {
+     "all": 0.3473706712270201,
+     "none": 0.27627118644067794,
+     "loss": 0.43645251396648044,
+     "hold": 0.40346820809248557,
+     "oneway": 0.4226594301221167
+    },
+    "recall": {
+     "all": 0.5095913261050876,
+     "alone": 0.5571177504393673,
+     "overlap": 0.4666666666666667,
+     "overlap_loss": 0.38421052631578945,
+     "overlap_hold": 0.4827586206896552,
+     "overlap_oneway": 0.5240384615384616
+    },
+    "n_fault": {
+     "all": 1199,
+     "alone": 569,
+     "overlap": 630,
+     "overlap_loss": 190,
+     "overlap_hold": 232,
+     "overlap_oneway": 208
+    },
+    "misses": {
+     "cant-tell": 500,
+     "no-change": 50,
+     "better": 2,
+     "small": 36
+    },
+    "per_fault": {
+     "dns_down": {
+      "recall": 0.4075829383886256,
+      "cant_tell": 0.5639810426540285,
+      "no_change": 0.018957345971563982,
+      "small": 0.0
+     },
+     "dns_slow": {
+      "recall": 0.36,
+      "cant_tell": 0.585,
+      "no_change": 0.015,
+      "small": 0.04
+     },
+     "servfail": {
+      "recall": 0.31868131868131866,
+      "cant_tell": 0.6043956043956044,
+      "no_change": 0.07692307692307693,
+      "small": 0.0
+     },
+     "arp_storm": {
+      "recall": 0.9433962264150944,
+      "cant_tell": 0.04245283018867924,
+      "no_change": 0.014150943396226415,
+      "small": 0.0
+     },
+     "dhcp_trouble": {
+      "recall": 0.900990099009901,
+      "cant_tell": 0.09900990099009901,
+      "no_change": 0.0,
+      "small": 0.0
+     },
+     "subtle_latency": {
+      "recall": 0.06770833333333333,
+      "cant_tell": 0.6510416666666666,
+      "no_change": 0.13541666666666666,
+      "small": 0.14583333333333334
+     }
+    },
+    "dns_recall_by_density": {
+     "sparse": 0.028901734104046242,
+     "medium": 0.39748953974895396,
+     "busy": 0.62
+    },
+    "miss_reasons": {
+     "too-few": 280,
+     "not-watched": 50,
+     "one-way": 3,
+     "weak": 160,
+     "unseen": 7
+    },
+    "selective_time": {
+     "material": {
+      "n": 6,
+      "worse": 0,
+      "no-change": 0,
+      "cant-tell": 6,
+      "small": 0,
+      "better": 0
+     },
+     "not_material": {
+      "n": 104,
+      "worse": 0,
+      "no-change": 40,
+      "cant-tell": 61,
+      "small": 2,
+      "better": 1
+     }
+    }
+   },
+   "oracle-gate": {
+    "false_claim_rate": {
+     "all": 0.011650277896536982,
+     "none": 0.0,
+     "loss": 0.0006983240223463687,
+     "hold": 0.0017341040462427746,
+     "oneway": 0.07123473541383989
+    },
+    "false_alert_windows": {
+     "all": 0.05661948376353039,
+     "none": 0.0,
+     "loss": 0.005,
+     "hold": 0.004784688995215311,
+     "oneway": 0.3815028901734104
+    },
+    "abstain_rate": {
+     "all": 0.3450192389910218,
+     "none": 0.2701271186440678,
+     "loss": 0.4511173184357542,
+     "hold": 0.3919075144508671,
+     "oneway": 0.42672998643147897
+    },
+    "recall": {
+     "all": 0.5221017514595496,
+     "alone": 0.5659050966608085,
+     "overlap": 0.48253968253968255,
+     "overlap_loss": 0.4105263157894737,
+     "overlap_hold": 0.5,
+     "overlap_oneway": 0.5288461538461539
+    },
+    "n_fault": {
+     "all": 1199,
+     "alone": 569,
+     "overlap": 630,
+     "overlap_loss": 190,
+     "overlap_hold": 232,
+     "overlap_oneway": 208
+    },
+    "misses": {
+     "cant-tell": 484,
+     "no-change": 50,
+     "better": 2,
+     "small": 37
+    },
+    "per_fault": {
+     "dns_down": {
+      "recall": 0.4312796208530806,
+      "cant_tell": 0.5402843601895735,
+      "no_change": 0.018957345971563982,
+      "small": 0.0
+     },
+     "dns_slow": {
+      "recall": 0.37,
+      "cant_tell": 0.58,
+      "no_change": 0.01,
+      "small": 0.04
+     },
+     "servfail": {
+      "recall": 0.31868131868131866,
+      "cant_tell": 0.6043956043956044,
+      "no_change": 0.07692307692307693,
+      "small": 0.0
+     },
+     "arp_storm": {
+      "recall": 0.9575471698113207,
+      "cant_tell": 0.02830188679245283,
+      "no_change": 0.014150943396226415,
+      "small": 0.0
+     },
+     "dhcp_trouble": {
+      "recall": 0.9257425742574258,
+      "cant_tell": 0.07425742574257425,
+      "no_change": 0.0,
+      "small": 0.0
+     },
+     "subtle_latency": {
+      "recall": 0.06770833333333333,
+      "cant_tell": 0.640625,
+      "no_change": 0.140625,
+      "small": 0.15104166666666666
+     }
+    },
+    "dns_recall_by_density": {
+     "sparse": 0.04046242774566474,
+     "medium": 0.40585774058577406,
+     "busy": 0.625
+    },
+    "miss_reasons": {
+     "too-few": 271,
+     "one-way": 3,
+     "not-watched": 43,
+     "weak": 159,
+     "unseen": 8
+    },
+    "selective_time": {
+     "material": {
+      "n": 6,
+      "worse": 0,
+      "no-change": 0,
+      "cant-tell": 6,
+      "small": 0,
+      "better": 0
+     },
+     "not_material": {
+      "n": 104,
+      "worse": 0,
+      "no-change": 39,
+      "cant-tell": 62,
+      "small": 2,
+      "better": 1
+     }
+    }
+   },
+   "loss-aware": {
+    "false_claim_rate": {
+     "all": 0.0006412997007268063,
+     "none": 0.0,
+     "loss": 0.0006983240223463687,
+     "hold": 0.0023121387283236996,
+     "oneway": 0.0006784260515603799
+    },
+    "false_alert_windows": {
+     "all": 0.0016652789342214821,
+     "none": 0.0,
+     "loss": 0.005,
+     "hold": 0.004784688995215311,
+     "oneway": 0.0
+    },
+    "abstain_rate": {
+     "all": 0.37206070970500216,
+     "none": 0.3076271186440678,
+     "loss": 0.30935754189944137,
+     "hold": 0.4161849710982659,
+     "oneway": 0.587516960651289
+    },
+    "recall": {
+     "all": 0.5062552126772311,
+     "alone": 0.5536028119507909,
+     "overlap": 0.4634920634920635,
+     "overlap_loss": 0.5263157894736842,
+     "overlap_hold": 0.47413793103448276,
+     "overlap_oneway": 0.3942307692307692
+    },
+    "n_fault": {
+     "all": 1199,
+     "alone": 569,
+     "overlap": 630,
+     "overlap_loss": 190,
+     "overlap_hold": 232,
+     "overlap_oneway": 208
+    },
+    "misses": {
+     "cant-tell": 514,
+     "no-change": 41,
+     "better": 0,
+     "small": 37
+    },
+    "per_fault": {
+     "dns_down": {
+      "recall": 0.2796208530805687,
+      "cant_tell": 0.7109004739336493,
+      "no_change": 0.009478672985781991,
+      "small": 0.0
+     },
+     "dns_slow": {
+      "recall": 0.34,
+      "cant_tell": 0.62,
+      "no_change": 0.0,
+      "small": 0.04
+     },
+     "servfail": {
+      "recall": 0.33516483516483514,
+      "cant_tell": 0.5989010989010989,
+      "no_change": 0.06593406593406594,
+      "small": 0.0
+     },
+     "arp_storm": {
+      "recall": 0.9858490566037735,
+      "cant_tell": 0.0,
+      "no_change": 0.014150943396226415,
+      "small": 0.0
+     },
+     "dhcp_trouble": {
+      "recall": 0.9752475247524752,
+      "cant_tell": 0.024752475247524754,
+      "no_change": 0.0,
+      "small": 0.0
+     },
+     "subtle_latency": {
+      "recall": 0.06770833333333333,
+      "cant_tell": 0.65625,
+      "no_change": 0.125,
+      "small": 0.15104166666666666
+     }
+    },
+    "dns_recall_by_density": {
+     "sparse": 0.03757225433526012,
+     "medium": 0.3263598326359833,
+     "busy": 0.55
+    },
+    "miss_reasons": {
+     "too-few": 201,
+     "one-way": 158,
+     "weak": 148,
+     "loss-unknown": 6,
+     "unseen": 1
+    },
+    "selective_time": {
+     "material": {
+      "n": 6,
+      "worse": 0,
+      "no-change": 0,
+      "cant-tell": 6,
+      "small": 0,
+      "better": 0
+     },
+     "not_material": {
+      "n": 104,
+      "worse": 0,
+      "no-change": 46,
+      "cant-tell": 52,
+      "small": 5,
+      "better": 1
+     }
+    }
+   },
+   "n_windows": 2400
+  },
+  {
+   "naive": {
+    "false_claim_rate": {
+     "all": 0.016829995739241585,
+     "none": 0.002363558229480017,
+     "loss": 0.007047216349541931,
+     "hold": 0.0,
+     "oneway": 0.08135391923990498
+    },
+    "false_alert_windows": {
+     "all": 0.09053497942386832,
+     "none": 0.008333333333333333,
+     "loss": 0.02127659574468085,
+     "hold": 0.0,
+     "oneway": 0.4590909090909091
+    },
+    "abstain_rate": {
+     "all": 0.3111418832552194,
+     "none": 0.28083369144821657,
+     "loss": 0.26215644820295986,
+     "hold": 0.31943592887798894,
+     "oneway": 0.42814726840855105
+    },
+    "recall": {
+     "all": 0.5890295358649789,
+     "alone": 0.6119929453262787,
+     "overlap": 0.5679611650485437,
+     "overlap_loss": 0.6403940886699507,
+     "overlap_hold": 0.5288461538461539,
+     "overlap_oneway": 0.5362318840579711
+    },
+    "n_fault": {
+     "all": 1185,
+     "alone": 567,
+     "overlap": 618,
+     "overlap_loss": 203,
+     "overlap_hold": 208,
+     "overlap_oneway": 207
+    },
+    "misses": {
+     "cant-tell": 397,
+     "no-change": 43,
+     "better": 1,
+     "small": 46
+    },
+    "per_fault": {
+     "dns_down": {
+      "recall": 0.5459183673469388,
+      "cant_tell": 0.4336734693877551,
+      "no_change": 0.015306122448979591,
+      "small": 0.0
+     },
+     "dns_slow": {
+      "recall": 0.48756218905472637,
+      "cant_tell": 0.472636815920398,
+      "no_change": 0.009950248756218905,
+      "small": 0.029850746268656716
+     },
+     "servfail": {
+      "recall": 0.3645833333333333,
+      "cant_tell": 0.5260416666666666,
+      "no_change": 0.109375,
+      "small": 0.0
+     },
+     "arp_storm": {
+      "recall": 0.9952830188679245,
+      "cant_tell": 0.0047169811320754715,
+      "no_change": 0.0,
+      "small": 0.0
+     },
+     "dhcp_trouble": {
+      "recall": 0.9847715736040609,
+      "cant_tell": 0.015228426395939087,
+      "no_change": 0.0,
+      "small": 0.0
+     },
+     "subtle_latency": {
+      "recall": 0.0962566844919786,
+      "cant_tell": 0.5989304812834224,
+      "no_change": 0.09090909090909091,
+      "small": 0.21390374331550802
+     }
+    },
+    "dns_recall_by_density": {
+     "sparse": 0.060498220640569395,
+     "medium": 0.4591439688715953,
+     "busy": 0.6638655462184874
+    },
+    "miss_reasons": {
+     "too-few": 230,
+     "weak": 163,
+     "unseen": 4
+    },
+    "selective_time": {
+     "material": {
+      "n": 6,
+      "worse": 0,
+      "no-change": 0,
+      "cant-tell": 6,
+      "small": 0,
+      "better": 0
+     },
+     "not_material": {
+      "n": 106,
+      "worse": 0,
+      "no-change": 40,
+      "cant-tell": 61,
+      "small": 5,
+      "better": 0
+     }
+    }
+   },
+   "gate": {
+    "false_claim_rate": {
+     "all": 0.01438005965061781,
+     "none": 0.0006446067898581865,
+     "loss": 0.0007047216349541931,
+     "hold": 0.0,
+     "oneway": 0.07779097387173396
+    },
+    "false_alert_windows": {
+     "all": 0.08065843621399177,
+     "none": 0.0033333333333333335,
+     "loss": 0.0,
+     "hold": 0.0,
+     "oneway": 0.43636363636363634
+    },
+    "abstain_rate": {
+     "all": 0.3737750319556881,
+     "none": 0.30275032230339494,
+     "loss": 0.43622269203664554,
+     "hold": 0.45493562231759654,
+     "oneway": 0.43883610451306415
+    },
+    "recall": {
+     "all": 0.5434599156118144,
+     "alone": 0.5943562610229277,
+     "overlap": 0.4967637540453074,
+     "overlap_loss": 0.45320197044334976,
+     "overlap_hold": 0.5096153846153846,
+     "overlap_oneway": 0.5265700483091788
+    },
+    "n_fault": {
+     "all": 1185,
+     "alone": 567,
+     "overlap": 618,
+     "overlap_loss": 203,
+     "overlap_hold": 208,
+     "overlap_oneway": 207
+    },
+    "misses": {
+     "cant-tell": 451,
+     "no-change": 53,
+     "better": 1,
+     "small": 36
+    },
+    "per_fault": {
+     "dns_down": {
+      "recall": 0.49489795918367346,
+      "cant_tell": 0.46938775510204084,
+      "no_change": 0.030612244897959183,
+      "small": 0.0
+     },
+     "dns_slow": {
+      "recall": 0.4626865671641791,
+      "cant_tell": 0.4975124378109453,
+      "no_change": 0.014925373134328358,
+      "small": 0.024875621890547265
+     },
+     "servfail": {
+      "recall": 0.3020833333333333,
+      "cant_tell": 0.578125,
+      "no_change": 0.11979166666666667,
+      "small": 0.0
+     },
+     "arp_storm": {
+      "recall": 0.9150943396226415,
+      "cant_tell": 0.08490566037735849,
+      "no_change": 0.0,
+      "small": 0.0
+     },
+     "dhcp_trouble": {
+      "recall": 0.9137055837563451,
+      "cant_tell": 0.08629441624365482,
+      "no_change": 0.0,
+      "small": 0.0
+     },
+     "subtle_latency": {
+      "recall": 0.11764705882352941,
+      "cant_tell": 0.6042780748663101,
+      "no_change": 0.11229946524064172,
+      "small": 0.1657754010695187
+     }
+    },
+    "dns_recall_by_density": {
+     "sparse": 0.05338078291814947,
+     "medium": 0.4085603112840467,
+     "busy": 0.6302521008403361
+    },
+    "miss_reasons": {
+     "too-few": 237,
+     "one-way": 5,
+     "not-watched": 54,
+     "weak": 151,
+     "unseen": 4
+    },
+    "selective_time": {
+     "material": {
+      "n": 6,
+      "worse": 0,
+      "no-change": 0,
+      "cant-tell": 6,
+      "small": 0,
+      "better": 0
+     },
+     "not_material": {
+      "n": 106,
+      "worse": 0,
+      "no-change": 32,
+      "cant-tell": 71,
+      "small": 3,
+      "better": 0
+     }
+    }
+   },
+   "oracle-gate": {
+    "false_claim_rate": {
+     "all": 0.014486578610992756,
+     "none": 0.0006446067898581865,
+     "loss": 0.0007047216349541931,
+     "hold": 0.0,
+     "oneway": 0.07838479809976247
+    },
+    "false_alert_windows": {
+     "all": 0.08148148148148149,
+     "none": 0.0033333333333333335,
+     "loss": 0.0,
+     "hold": 0.0,
+     "oneway": 0.4409090909090909
+    },
+    "abstain_rate": {
+     "all": 0.3657861099275671,
+     "none": 0.2894284486463257,
+     "loss": 0.4503171247357294,
+     "hold": 0.43838136112814224,
+     "oneway": 0.4352731591448931
+    },
+    "recall": {
+     "all": 0.5510548523206751,
+     "alone": 0.5978835978835979,
+     "overlap": 0.5080906148867314,
+     "overlap_loss": 0.4630541871921182,
+     "overlap_hold": 0.5288461538461539,
+     "overlap_oneway": 0.5314009661835749
+    },
+    "n_fault": {
+     "all": 1185,
+     "alone": 567,
+     "overlap": 618,
+     "overlap_loss": 203,
+     "overlap_hold": 208,
+     "overlap_oneway": 207
+    },
+    "misses": {
+     "cant-tell": 445,
+     "no-change": 47,
+     "better": 1,
+     "small": 39
+    },
+    "per_fault": {
+     "dns_down": {
+      "recall": 0.49489795918367346,
+      "cant_tell": 0.4744897959183674,
+      "no_change": 0.025510204081632654,
+      "small": 0.0
+     },
+     "dns_slow": {
+      "recall": 0.4527363184079602,
+      "cant_tell": 0.5074626865671642,
+      "no_change": 0.009950248756218905,
+      "small": 0.029850746268656716
+     },
+     "servfail": {
+      "recall": 0.3229166666666667,
+      "cant_tell": 0.5625,
+      "no_change": 0.11458333333333333,
+      "small": 0.0
+     },
+     "arp_storm": {
+      "recall": 0.9339622641509434,
+      "cant_tell": 0.0660377358490566,
+      "no_change": 0.0,
+      "small": 0.0
+     },
+     "dhcp_trouble": {
+      "recall": 0.9289340101522843,
+      "cant_tell": 0.07106598984771574,
+      "no_change": 0.0,
+      "small": 0.0
+     },
+     "subtle_latency": {
+      "recall": 0.11764705882352941,
+      "cant_tell": 0.6096256684491979,
+      "no_change": 0.0962566844919786,
+      "small": 0.17647058823529413
+     }
+    },
+    "dns_recall_by_density": {
+     "sparse": 0.05693950177935943,
+     "medium": 0.4163424124513619,
+     "busy": 0.6260504201680672
+    },
+    "miss_reasons": {
+     "too-few": 228,
+     "one-way": 5,
+     "not-watched": 57,
+     "weak": 151,
+     "unseen": 4
+    },
+    "selective_time": {
+     "material": {
+      "n": 6,
+      "worse": 0,
+      "no-change": 0,
+      "cant-tell": 6,
+      "small": 0,
+      "better": 0
+     },
+     "not_material": {
+      "n": 106,
+      "worse": 0,
+      "no-change": 31,
+      "cant-tell": 72,
+      "small": 3,
+      "better": 0
+     }
+    }
+   },
+   "loss-aware": {
+    "false_claim_rate": {
+     "all": 0.0003195568811248402,
+     "none": 0.0004297378599054577,
+     "loss": 0.0007047216349541931,
+     "hold": 0.0,
+     "oneway": 0.0
+    },
+    "false_alert_windows": {
+     "all": 0.0016460905349794238,
+     "none": 0.0033333333333333335,
+     "loss": 0.0,
+     "hold": 0.0,
+     "oneway": 0.0
+    },
+    "abstain_rate": {
+     "all": 0.4042394546229229,
+     "none": 0.33863343360550063,
+     "loss": 0.3157152924594785,
+     "hold": 0.45493562231759654,
+     "oneway": 0.6110451306413301
+    },
+    "recall": {
+     "all": 0.550210970464135,
+     "alone": 0.5890652557319224,
+     "overlap": 0.5145631067961165,
+     "overlap_loss": 0.6157635467980296,
+     "overlap_hold": 0.5432692307692307,
+     "overlap_oneway": 0.3864734299516908
+    },
+    "n_fault": {
+     "all": 1185,
+     "alone": 567,
+     "overlap": 618,
+     "overlap_loss": 203,
+     "overlap_hold": 208,
+     "overlap_oneway": 207
+    },
+    "misses": {
+     "cant-tell": 454,
+     "no-change": 37,
+     "better": 0,
+     "small": 42
+    },
+    "per_fault": {
+     "dns_down": {
+      "recall": 0.4030612244897959,
+      "cant_tell": 0.5663265306122449,
+      "no_change": 0.030612244897959183,
+      "small": 0.0
+     },
+     "dns_slow": {
+      "recall": 0.42786069651741293,
+      "cant_tell": 0.5422885572139303,
+      "no_change": 0.0,
+      "small": 0.029850746268656716
+     },
+     "servfail": {
+      "recall": 0.328125,
+      "cant_tell": 0.59375,
+      "no_change": 0.078125,
+      "small": 0.0
+     },
+     "arp_storm": {
+      "recall": 1.0,
+      "cant_tell": 0.0,
+      "no_change": 0.0,
+      "small": 0.0
+     },
+     "dhcp_trouble": {
+      "recall": 0.9847715736040609,
+      "cant_tell": 0.015228426395939087,
+      "no_change": 0.0,
+      "small": 0.0
+     },
+     "subtle_latency": {
+      "recall": 0.0962566844919786,
+      "cant_tell": 0.6256684491978609,
+      "no_change": 0.0855614973262032,
+      "small": 0.1925133689839572
+     }
+    },
+    "dns_recall_by_density": {
+     "sparse": 0.0498220640569395,
+     "medium": 0.3852140077821012,
+     "busy": 0.5588235294117647
+    },
+    "miss_reasons": {
+     "one-way": 167,
+     "too-few": 157,
+     "weak": 123,
+     "loss-unknown": 7
+    },
+    "selective_time": {
+     "material": {
+      "n": 6,
+      "worse": 0,
+      "no-change": 0,
+      "cant-tell": 6,
+      "small": 0,
+      "better": 0
+     },
+     "not_material": {
+      "n": 106,
+      "worse": 0,
+      "no-change": 38,
+      "cant-tell": 63,
+      "small": 5,
+      "better": 0
+     }
+    }
+   },
+   "n_windows": 2400
+  },
+  {
+   "naive": {
+    "false_claim_rate": {
+     "all": 0.015832536393581977,
+     "none": 0.002920317062995411,
+     "loss": 0.00408997955010225,
+     "hold": 0.0006443298969072165,
+     "oneway": 0.08010012515644556
+    },
+    "false_alert_windows": {
+     "all": 0.08727569331158239,
+     "none": 0.01174496644295302,
+     "loss": 0.018433179723502304,
+     "hold": 0.0,
+     "oneway": 0.44651162790697674
+    },
+    "abstain_rate": {
+     "all": 0.318882159175433,
+     "none": 0.3053817271589487,
+     "loss": 0.305385139740968,
+     "hold": 0.27512886597938147,
+     "oneway": 0.4142678347934919
+    },
+    "recall": {
+     "all": 0.5459965928449745,
+     "alone": 0.5786061588330632,
+     "overlap": 0.5098743267504489,
+     "overlap_loss": 0.6149425287356322,
+     "overlap_hold": 0.43147208121827413,
+     "overlap_oneway": 0.4946236559139785
+    },
+    "n_fault": {
+     "all": 1174,
+     "alone": 617,
+     "overlap": 557,
+     "overlap_loss": 174,
+     "overlap_hold": 197,
+     "overlap_oneway": 186
+    },
+    "misses": {
+     "cant-tell": 441,
+     "no-change": 40,
+     "better": 4,
+     "small": 48
+    },
+    "per_fault": {
+     "dns_down": {
+      "recall": 0.6,
+      "cant_tell": 0.3684210526315789,
+      "no_change": 0.015789473684210527,
+      "small": 0.0
+     },
+     "dns_slow": {
+      "recall": 0.4375,
+      "cant_tell": 0.5208333333333334,
+      "no_change": 0.0,
+      "small": 0.041666666666666664
+     },
+     "servfail": {
+      "recall": 0.3055555555555556,
+      "cant_tell": 0.6388888888888888,
+      "no_change": 0.05555555555555555,
+      "small": 0.0
+     },
+     "arp_storm": {
+      "recall": 0.9783783783783784,
+      "cant_tell": 0.010810810810810811,
+      "no_change": 0.005405405405405406,
+      "small": 0.0
+     },
+     "dhcp_trouble": {
+      "recall": 0.9329896907216495,
+      "cant_tell": 0.06701030927835051,
+      "no_change": 0.0,
+      "small": 0.0
+     },
+     "subtle_latency": {
+      "recall": 0.07614213197969544,
+      "cant_tell": 0.5989847715736041,
+      "no_change": 0.1218274111675127,
+      "small": 0.20304568527918782
+     }
+    },
+    "dns_recall_by_density": {
+     "sparse": 0.06051873198847262,
+     "medium": 0.37142857142857144,
+     "busy": 0.6384839650145773
+    },
+    "miss_reasons": {
+     "too-few": 272,
+     "weak": 163,
+     "unseen": 6
+    },
+    "selective_time": {
+     "material": {
+      "n": 7,
+      "worse": 0,
+      "no-change": 0,
+      "cant-tell": 7,
+      "small": 0,
+      "better": 0
+     },
+     "not_material": {
+      "n": 100,
+      "worse": 0,
+      "no-change": 42,
+      "cant-tell": 56,
+      "small": 2,
+      "better": 0
+     }
+    }
+   },
+   "gate": {
+    "false_claim_rate": {
+     "all": 0.012644777388162788,
+     "none": 0.0006257822277847309,
+     "loss": 0.0,
+     "hold": 0.0006443298969072165,
+     "oneway": 0.07196495619524405
+    },
+    "false_alert_windows": {
+     "all": 0.0734094616639478,
+     "none": 0.003355704697986577,
+     "loss": 0.0,
+     "hold": 0.0,
+     "oneway": 0.40930232558139534
+    },
+    "abstain_rate": {
+     "all": 0.37339283816810115,
+     "none": 0.31748018356278684,
+     "loss": 0.46830265848670755,
+     "hold": 0.3911082474226804,
+     "oneway": 0.43679599499374216
+    },
+    "recall": {
+     "all": 0.5212947189097104,
+     "alone": 0.5753646677471637,
+     "overlap": 0.4614003590664273,
+     "overlap_loss": 0.47701149425287354,
+     "overlap_hold": 0.4365482233502538,
+     "overlap_oneway": 0.4731182795698925
+    },
+    "n_fault": {
+     "all": 1174,
+     "alone": 617,
+     "overlap": 557,
+     "overlap_loss": 174,
+     "overlap_hold": 197,
+     "overlap_oneway": 186
+    },
+    "misses": {
+     "cant-tell": 473,
+     "no-change": 45,
+     "better": 3,
+     "small": 41
+    },
+    "per_fault": {
+     "dns_down": {
+      "recall": 0.5684210526315789,
+      "cant_tell": 0.3894736842105263,
+      "no_change": 0.02631578947368421,
+      "small": 0.0
+     },
+     "dns_slow": {
+      "recall": 0.421875,
+      "cant_tell": 0.5364583333333334,
+      "no_change": 0.015625,
+      "small": 0.026041666666666668
+     },
+     "servfail": {
+      "recall": 0.2777777777777778,
+      "cant_tell": 0.6620370370370371,
+      "no_change": 0.06018518518518518,
+      "small": 0.0
+     },
+     "arp_storm": {
+      "recall": 0.9351351351351351,
+      "cant_tell": 0.05945945945945946,
+      "no_change": 0.005405405405405406,
+      "small": 0.0
+     },
+     "dhcp_trouble": {
+      "recall": 0.9123711340206185,
+      "cant_tell": 0.08762886597938144,
+      "no_change": 0.0,
+      "small": 0.0
+     },
+     "subtle_latency": {
+      "recall": 0.06598984771573604,
+      "cant_tell": 0.6345177664974619,
+      "no_change": 0.116751269035533,
+      "small": 0.18274111675126903
+     }
+    },
+    "dns_recall_by_density": {
+     "sparse": 0.04610951008645533,
+     "medium": 0.34285714285714286,
+     "busy": 0.6122448979591837
+    },
+    "miss_reasons": {
+     "too-few": 278,
+     "weak": 156,
+     "not-watched": 32,
+     "one-way": 2,
+     "unseen": 5
+    },
+    "selective_time": {
+     "material": {
+      "n": 7,
+      "worse": 0,
+      "no-change": 0,
+      "cant-tell": 7,
+      "small": 0,
+      "better": 0
+     },
+     "not_material": {
+      "n": 100,
+      "worse": 0,
+      "no-change": 33,
+      "cant-tell": 66,
+      "small": 1,
+      "better": 0
+     }
+    }
+   },
+   "oracle-gate": {
+    "false_claim_rate": {
+     "all": 0.012963553288704707,
+     "none": 0.0006257822277847309,
+     "loss": 0.0,
+     "hold": 0.0006443298969072165,
+     "oneway": 0.07384230287859825
+    },
+    "false_alert_windows": {
+     "all": 0.07585644371941272,
+     "none": 0.003355704697986577,
+     "loss": 0.0,
+     "hold": 0.0,
+     "oneway": 0.4232558139534884
+    },
+    "abstain_rate": {
+     "all": 0.3710551482307938,
+     "none": 0.3141426783479349,
+     "loss": 0.47375596455351054,
+     "hold": 0.38917525773195877,
+     "oneway": 0.42991239048811014
+    },
+    "recall": {
+     "all": 0.5221465076660988,
+     "alone": 0.5753646677471637,
+     "overlap": 0.4631956912028725,
+     "overlap_loss": 0.45977011494252873,
+     "overlap_hold": 0.4416243654822335,
+     "overlap_oneway": 0.489247311827957
+    },
+    "n_fault": {
+     "all": 1174,
+     "alone": 617,
+     "overlap": 557,
+     "overlap_loss": 174,
+     "overlap_hold": 197,
+     "overlap_oneway": 186
+    },
+    "misses": {
+     "cant-tell": 474,
+     "no-change": 42,
+     "better": 3,
+     "small": 42
+    },
+    "per_fault": {
+     "dns_down": {
+      "recall": 0.5842105263157895,
+      "cant_tell": 0.3736842105263158,
+      "no_change": 0.02631578947368421,
+      "small": 0.0
+     },
+     "dns_slow": {
+      "recall": 0.4114583333333333,
+      "cant_tell": 0.546875,
+      "no_change": 0.010416666666666666,
+      "small": 0.03125
+     },
+     "servfail": {
+      "recall": 0.28703703703703703,
+      "cant_tell": 0.6620370370370371,
+      "no_change": 0.05092592592592592,
+      "small": 0.0
+     },
+     "arp_storm": {
+      "recall": 0.9405405405405406,
+      "cant_tell": 0.05405405405405406,
+      "no_change": 0.005405405405405406,
+      "small": 0.0
+     },
+     "dhcp_trouble": {
+      "recall": 0.8969072164948454,
+      "cant_tell": 0.10309278350515463,
+      "no_change": 0.0,
+      "small": 0.0
+     },
+     "subtle_latency": {
+      "recall": 0.06598984771573604,
+      "cant_tell": 0.6345177664974619,
+      "no_change": 0.116751269035533,
+      "small": 0.18274111675126903
+     }
+    },
+    "dns_recall_by_density": {
+     "sparse": 0.05187319884726225,
+     "medium": 0.3333333333333333,
+     "busy": 0.6180758017492711
+    },
+    "miss_reasons": {
+     "too-few": 267,
+     "not-watched": 40,
+     "weak": 159,
+     "one-way": 2,
+     "unseen": 6
+    },
+    "selective_time": {
+     "material": {
+      "n": 7,
+      "worse": 0,
+      "no-change": 0,
+      "cant-tell": 7,
+      "small": 0,
+      "better": 0
+     },
+     "not_material": {
+      "n": 100,
+      "worse": 0,
+      "no-change": 33,
+      "cant-tell": 66,
+      "small": 1,
+      "better": 0
+     }
+    }
+   },
+   "loss-aware": {
+    "false_claim_rate": {
+     "all": 0.00042503453405589204,
+     "none": 0.0006257822277847309,
+     "loss": 0.0,
+     "hold": 0.0006443298969072165,
+     "oneway": 0.0
+    },
+    "false_alert_windows": {
+     "all": 0.0016313213703099511,
+     "none": 0.003355704697986577,
+     "loss": 0.0,
+     "hold": 0.0,
+     "oneway": 0.0
+    },
+    "abstain_rate": {
+     "all": 0.40187015194984593,
+     "none": 0.34376303712974554,
+     "loss": 0.3551465576005453,
+     "hold": 0.41494845360824745,
+     "oneway": 0.6063829787234043
+    },
+    "recall": {
+     "all": 0.5034071550255537,
+     "alone": 0.5623987034035657,
+     "overlap": 0.4380610412926391,
+     "overlap_loss": 0.6091954022988506,
+     "overlap_hold": 0.4365482233502538,
+     "overlap_oneway": 0.27956989247311825
+    },
+    "n_fault": {
+     "all": 1174,
+     "alone": 617,
+     "overlap": 557,
+     "overlap_loss": 174,
+     "overlap_hold": 197,
+     "overlap_oneway": 186
+    },
+    "misses": {
+     "cant-tell": 500,
+     "no-change": 37,
+     "better": 0,
+     "small": 46
+    },
+    "per_fault": {
+     "dns_down": {
+      "recall": 0.3894736842105263,
+      "cant_tell": 0.5789473684210527,
+      "no_change": 0.031578947368421054,
+      "small": 0.0
+     },
+     "dns_slow": {
+      "recall": 0.3958333333333333,
+      "cant_tell": 0.5572916666666666,
+      "no_change": 0.005208333333333333,
+      "small": 0.041666666666666664
+     },
+     "servfail": {
+      "recall": 0.28703703703703703,
+      "cant_tell": 0.6712962962962963,
+      "no_change": 0.041666666666666664,
+      "small": 0.0
+     },
+     "arp_storm": {
+      "recall": 0.9837837837837838,
+      "cant_tell": 0.010810810810810811,
+      "no_change": 0.005405405405405406,
+      "small": 0.0
+     },
+     "dhcp_trouble": {
+      "recall": 0.9432989690721649,
+      "cant_tell": 0.05670103092783505,
+      "no_change": 0.0,
+      "small": 0.0
+     },
+     "subtle_latency": {
+      "recall": 0.07106598984771574,
+      "cant_tell": 0.6345177664974619,
+      "no_change": 0.10152284263959391,
+      "small": 0.19289340101522842
+     }
+    },
+    "dns_recall_by_density": {
+     "sparse": 0.040345821325648415,
+     "medium": 0.2761904761904762,
+     "busy": 0.5335276967930029
+    },
+    "miss_reasons": {
+     "too-few": 213,
+     "one-way": 147,
+     "weak": 132,
+     "not-watched": 2,
+     "loss-unknown": 5,
+     "unseen": 1
+    },
+    "selective_time": {
+     "material": {
+      "n": 7,
+      "worse": 0,
+      "no-change": 0,
+      "cant-tell": 7,
+      "small": 0,
+      "better": 0
+     },
+     "not_material": {
+      "n": 100,
+      "worse": 0,
+      "no-change": 38,
+      "cant-tell": 60,
+      "small": 2,
+      "better": 0
+     }
+    }
+   },
+   "n_windows": 2400
+  }
+ ],
+ "seconds": 28.5
+}

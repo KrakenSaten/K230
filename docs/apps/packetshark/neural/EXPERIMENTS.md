@@ -4,6 +4,8 @@
 
 **Status on 27 November 2026.** The results below stand as corrected after the independent review. Redoing E3a honestly (a noisy, lagged coverage signal, faults inside gaps, 10 seeds) and the CESNET study for Traffic DNA are adopted as research priorities ([INDEPENDENT-REVIEW.md](INDEPENDENT-REVIEW.md) §8, §9); neither is authorized by this record. Until E3a is redone, no document cites its gate figures.
 
+**E3a redone on 27 November 2026 (E3a-R, [N1.1.md](N1.1.md) §3).** A noisy, lagged coverage signal (the helper's own counter, read every 250 ms, with failed readings), loss from 0.1 %, one-way visibility inferred from packet counts, faults overlapping gaps, ten seeds, deterministic methods only (no training). E3a's gate figures below stay withdrawn; E3a-R's, synthetic too, replace them for design purposes only and are not field accuracy.
+
 Scripts, result JSON and the desk research are on the branch `research/packetshark-neural-lab` at [`29e1e8c`](https://github.com/KrakenSaten/K230/tree/29e1e8cc/research/packetshark-neural), under `research/packetshark-neural/`. Kmodels, ONNX files, bench inputs and binaries are in `C:\K230-artifacts\packetshark-neural\`, with `SHA256SUMS.txt`.
 
 **How to read the numbers.**
@@ -138,6 +140,17 @@ Fault types in italics were never seen in training.
 5. **There is a learnable residual on multi-signal faults** (N2 on the subtle mix). Whether it survives real data is G3's question, and it is the only reason to keep a neural detector on the research track.
 
 All E3a figures come from one seed, with no confidence intervals. The realised benign alert rate at the "1 %" threshold was 1.2–2.8 %.
+
+## E3a-R: E3a redone (27 November 2026)
+
+Method, results and limits: [N1.1.md](N1.1.md) §3; script and results: `research/packetshark-neural/e3a-r/` on the N1.1 branch. In brief, synthetic only:
+
+- **Held-out (28 November 2026, [G0.md](G0.md) §6):** the loss-aware rule passes on new E3a-R seeds but fails on an independent generator (false "more ARP requests" claims under burst loss and with a hidden receive path in the base minute); G0 is not passed.
+- These windows are G0's development set; G0's frozen criteria are in [G0.md](G0.md). Only the loss-aware rule passes them there: false problem claims in every healthy visibility-artifact category stay below 1 % (worst, burst loss: 0.40 %, 95 % upper bound 0.90 %), and recall for material faults overlapping loss is 65.8 % (lower bound 63.8 %).
+- The binary gate keeps false alerts under loss low but decides 44 % of faults that overlap loss, against 59 % for no handling; loss-aware estimation decides 56.5 %.
+- One-sided visibility that starts inside a window defeats a whole-window rule (about 42 % false alerts for both gates). The N1.1 one-way rules and the return-path witness bring it to 0.1 %, at the cost of abstaining on faults that overlap it.
+- Selective (burst) loss biases the answers seen toward fast ones; the engine counts unseen answers as the slowest, so no material slowdown was falsely reassured.
+- With 2-9 own DNS questions a minute, DNS comparisons decide about 4.5 % of faults. ARP and DHCP decide 96-99 %.
 
 ## E3b: Traffic DNA (`exp_dna.py`)
 

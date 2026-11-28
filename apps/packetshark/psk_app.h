@@ -463,6 +463,15 @@ struct psk_app {
     bool ev_due;         /* it is to be asked for */
     bool ev_asked;       /* asked, and no answer yet: asked again after a second */
     int64_t ev_sent_ms;
+    /* The WHEN face (N1.2, DS §59.12): a mark's comparisons, observed. */
+    lv_obj_t *in_panel;
+    lv_obj_t *in_head;
+    lv_obj_t *in_seeing;
+    lv_obj_t *in_title[PPC_IN_METRICS];
+    lv_obj_t *in_fig[PPC_IN_METRICS];
+    lv_obj_t *in_evd[PPC_IN_METRICS];
+    lv_obj_t *in_refs[PPC_IN_METRICS];
+    lv_obj_t *in_pair_a;
     lv_obj_t *ev_page;
     lv_obj_t *ev_park;   /* a screen that is never loaded: the page waits on it while it is not shown */
     lv_obj_t *ev_title;
