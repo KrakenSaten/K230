@@ -340,6 +340,13 @@ The image sets `fs.protected_hardlinks` and `fs.protected_symlinks` to 1 (`/etc/
   - The link settings apply through `S02sysctl`.
   - Not verified on the unit: deleting a saved capture from the app (host-tested).
 
+**Release checklist (next image build).** Amendments 2 and 3 were validated with the helper and the shell installed on a 0.5.0 image. The next release build must also:
+
+1. carry `/etc/sysctl.d/60-doors-links.conf` and the `pos-capture` account (65532, `POCKETOS_USERS` in the `pocketos` package). The helper uses the number, so it works without the account;
+2. on the release candidate, with a physical START: confirm that a capture saved as `pos-capture`, and one saved before amendment 2 (root's), are listed, open nothing, and can be deleted from the app;
+3. read `fs.protected_hardlinks` and `fs.protected_symlinks` as 1 after a cold boot;
+4. confirm that a capture ended by unplugging the cable reports the link loss, not `FILTERED`.
+
 Promiscuous mode is not offered in this version. The helper accepts the flag (libpcap sets it by socket membership, which the kernel reverts when the socket closes, DOCUMENTED, packet(7)), but the app shows OFF and takes no tap on the row until the reversion is verified on the hardware.
 
 ## 6. The line protocol

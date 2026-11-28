@@ -181,6 +181,7 @@ Classes as in `AGENTS.md`. The hardware results of M0 to M3 are in `docs/apps/PA
 
 | Date | Decision | By |
 | --- | --- | --- |
+| 2026-11-28 | **Amendments 2 and 3 approved for merge.** Deleting a saved capture from the app is accepted as host-tested; its confirmation on hardware is a release checklist item (docs/apps/PACKETSHARK.md §5). The residual risks and hardware limitations above stand | Product owner |
 | 2026-11-28 | Independent security review of amendment 3: **GO WITH FIXES**, no P0. Fixed: the program is built without ever writing past its array; `tgkill` to the helper itself only; `time` allowed for x86-64 without a vDSO; the shell names a filter kill; more tests (argument words, `sendfile`, `splice`, `vmsplice`, `pwrite64`, `io_uring`, `pidfd_getfd`, `clone`, `linkat`, a free number below the socket's). Its P1, a run on the target, is the Unit A validation | AI engineering partner |
 | 2026-11-28 | **Amendment 3 approved** (F1 completion): a seccomp allowlist installed as the drop's last step, the capture socket receive-only under it, fail closed (rule 17); `fs.protected_hardlinks` and `fs.protected_symlinks` set to 1 in the image. Every other rule stands | Product owner |
 | 2026-11-28 | **Amendment 2 approved** (F1 hardening, mitigation 1): the helper runs under its own unprivileged service identity before it reads untrusted data, and fails closed (rule 17); the captures folder is prepared at START and owned by that identity (rule 9); the risk wording corrected. Every other rule stands | Product owner |
