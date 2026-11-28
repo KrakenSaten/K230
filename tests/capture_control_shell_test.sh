@@ -28,6 +28,9 @@ if ! grep -aq '/usr/bin/pos-capture' "$SHELL_BIN"; then
 fi
 CALL="python3 tests/pocketipc_call.py"
 export POCKETOS_RUNTIME_DIR POCKETOS_LOG_DIR POCKETOS_CONFIG_DIR POCKETOS_STATE_DIR SDL_VIDEODRIVER=dummy
+# A capture prepares its captures folder at START (F1 hardening): a /tmp
+# path is refused, so no session here touches the home folder.
+export POCKETOS_CAPTURES_DIR=/tmp/pocketos-captures-none
 POCKETOS_RUNTIME_DIR=$(mktemp -d)
 POCKETOS_LOG_DIR=$(mktemp -d)
 POCKETOS_CONFIG_DIR=$(mktemp -d)

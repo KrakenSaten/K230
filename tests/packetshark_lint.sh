@@ -149,6 +149,43 @@ check "and for every answer of evidence, at STOP before the windows close, and o
        grep -q 'read_drops(h);.*hd.now_ms = ev_tick(h);' &&
        hbody stop_capture | grep -n 'read_drops(h);\|ppc_evid_stop(' | cut -d: -f2 | tr '\n' ' ' |
        grep -q 'read_drops(h);.*ppc_evid_stop(' && hbody tick | grep -q 'read_drops(h);' && echo 1 || echo 0)"
+# Least privilege before untrusted data (F1 hardening, ADR-016 rule 17
+# amended): the helper leaves root for its own identity after the source
+# opens and before a frame is read, and a failed reduction refuses the
+# capture; SAVE reaches its folder only through the descriptor prepared
+# before the drop; the failure switch exists only in the test build.
+P=tools/capture/capture_priv.c
+check "a start drops privileges after the source opens and before the capture state, and fails closed" \
+    "$(hbody cmd_start | grep -n 'h->src_open = 1;\|capture_captures_dir(\|drop_privileges(h, why, sizeof(why))\|start_undo(h);\|say_error(h, \"privilege\", why);\|h->state = PPC_STATE_CAPTURING;' |
+       cut -d: -f2 | tr '\n' ' ' |
+       grep -q 'h->src_open = 1;.*capture_captures_dir(.*drop_privileges(h, why, sizeof(why)).*start_undo(h);.*say_error(h, "privilege", why);.*h->state = PPC_STATE_CAPTURING;' &&
+       [ "$(code $H | grep -c 'drop_privileges(h')" = "1" ] && echo 1 || echo 0)"
+check "frames are analysed only while capturing, so none before the drop" \
+    "$(hbody on_frame | grep -q 'if (h->state != PPC_STATE_CAPTURING) {' && echo 1 || echo 0)"
+check "the identity switch: groups, gid, uid in that order, then capabilities, then checks read back" \
+    "$(code $P | grep -n 'setgroups(0, NULL)\|setresgid(gid, gid, gid)\|setresuid(id, id, id)\|SYS_capset\|read_status(p)\|setresuid(0, 0, 0)' |
+       cut -d: -f2 | tr '\n' ' ' |
+       grep -q 'setgroups(0, NULL).*setresgid(gid, gid, gid).*setresuid(id, id, id).*SYS_capset.*read_status(p).*setresuid(0, 0, 0)' &&
+       echo 1 || echo 0)"
+check "the parent-death signal is set again after the identity change" \
+    "$(hbody drop_privileges | grep -n 'capture_drop(&p)\|prctl(PR_SET_PDEATHSIG, SIGTERM' | cut -d: -f2 | tr '\n' ' ' |
+       grep -q 'capture_drop(&p).*prctl(PR_SET_PDEATHSIG, SIGTERM' && echo 1 || echo 0)"
+check "the log keeps its descriptor across the drop" \
+    "$(hbody drop_privileges | grep -n 'pocketlog_keep();\|capture_drop(&p)' | cut -d: -f2 | tr '\n' ' ' |
+       grep -q 'pocketlog_keep();.*capture_drop(&p)' && echo 1 || echo 0)"
+hits=$(code $H | grep -nE '\b(open|unlink|rename|lstat|statvfs)\(h->save_' )
+check "SAVE writes, renames and removes only through the captures folder's descriptor" \
+    "$([ -z "$hits" ] && code $H | grep -q 'openat(h->cap_dirfd, h->save_part' &&
+       code $H | grep -q 'renameat(h->cap_dirfd, h->save_part, h->cap_dirfd, h->save_path)' && echo 1 || echo 0)"
+check "the privilege-failure switch is in the test build alone" \
+    "$([ "$(code $H | grep -c 'POS_CAPTURE_TEST_DROP_FAIL')" = "1" ] &&
+       sed -n '/^#if POS_CAPTURE_TEST_HOOKS$/,/^#endif$/p' $H | grep -q 'POS_CAPTURE_TEST_DROP_FAIL' &&
+       sed -n '/^#if POS_CAPTURE_TEST_HOOKS$/,/^#endif$/p' $P | grep -q 'test_fail' &&
+       [ "$(code $P | grep -c 'test_fail')" = "$(sed -n '/^#if POS_CAPTURE_TEST_HOOKS$/,/^#endif$/p' $P | code /dev/stdin | grep -c 'test_fail')" ] &&
+       echo 1 || echo 0)"
+check "a session closes every inherited descriptor before it opens its own" \
+    "$(sed -n '/strcmp(argv\[1\], \"session\")/,/run_session(spec)/p' $H | grep -n 'close(fd);\|pocketlog_init(' | cut -d: -f2 | tr '\n' ' ' |
+       grep -q 'close(fd);.*pocketlog_init(' && echo 1 || echo 0)"
 check "the counter-failure switch is in the test build alone: read once, inside #if POS_CAPTURE_TEST_HOOKS" \
     "$([ "$(code $H | grep -c 'getenv("POS_CAPTURE_TEST_STATS_FAIL")')" = "1" ] &&
        sed -n '/^#if POS_CAPTURE_TEST_HOOKS$/,/^#endif$/p' $H | grep -q 'getenv("POS_CAPTURE_TEST_STATS_FAIL")' &&
@@ -172,8 +209,10 @@ check "the window after's count of lost frames is kept as readings are told, nev
        cbody spell_to_mark | grep -q 'm->side\[1\].lost += sp->lost;' && echo 1 || echo 0)"
 check "the analysis-off switch is in the test build alone: read once, inside #if POS_CAPTURE_TEST_HOOKS, which is 0 unless the test object sets it"     "$([ "$(code $H | grep -c 'getenv("POS_CAPTURE_TEST_NO_ANALYZER")')" = "1" ] &&
        sed -n '/^#if POS_CAPTURE_TEST_HOOKS$/,/^#endif$/p' $H | grep -q 'getenv("POS_CAPTURE_TEST_NO_ANALYZER")' &&
-       grep -q '^#define POS_CAPTURE_TEST_HOOKS 0$' $H && [ "$(grep -c 'DPOS_CAPTURE_TEST_HOOKS=1' Makefile)" = "2" ] &&
+       grep -q '^#define POS_CAPTURE_TEST_HOOKS 0$' $H && grep -q '^#define POS_CAPTURE_TEST_HOOKS 0$' tools/capture/capture_priv.h &&
+       [ "$(grep -c 'DPOS_CAPTURE_TEST_HOOKS=1' Makefile)" = "4" ] &&
        grep -q '^tests/pos_capture_hooks.o: tools/capture/pos_capture.c$' Makefile &&
+       grep -q '^tests/capture_priv_hooks.o: tools/capture/capture_priv.c' Makefile &&
        ! grep -rq 'POS_CAPTURE_TEST_HOOKS' platforms ui/shell/CMakeLists.txt && echo 1 || echo 0)"
 # A window whose losses are not known never says every frame was seen; the
 # page names its capture filter every time it is painted.
@@ -365,8 +404,10 @@ check "one method opens PacketShark, the start request, and only capture.status 
 # ---- lifecycle ------------------------------------------------------------------
 check "the helper is spawned with PR_SET_PDEATHSIG and a parent check" \
     "$(grep -q 'PR_SET_PDEATHSIG' $A/psk_session.c && grep -q 'getppid() != parent' $A/psk_session.c && echo 1 || echo 0)"
-check "the helper drops its capabilities and sets no_new_privs" \
-    "$(grep -q 'PR_SET_NO_NEW_PRIVS' $H && grep -q 'SYS_capset' $H && grep -q 'PR_CAPBSET_DROP' $H && echo 1 || echo 0)"
+check "the helper leaves root for its own identity, drops its capabilities and sets no_new_privs (F1 hardening)" \
+    "$(P=tools/capture/capture_priv.c; grep -q 'PR_SET_NO_NEW_PRIVS' $P && grep -q 'SYS_capset' $P && grep -q 'PR_CAPBSET_DROP' $P &&
+       grep -q 'setresuid(id, id, id)' $P && grep -q 'define POS_CAPTURE_ID 65532' tools/capture/capture_priv.h &&
+       grep -q 'capture_drop(&p)' $H && echo 1 || echo 0)"
 check "the helper runs at nice 5 (DESIGN_DECISIONS D5)" "$(grep -q 'define HELPER_NICE 5' $H && echo 1 || echo 0)"
 if [ -f ui/shell/shell.c ] && grep -q app_packetshark ui/shell/shell.c; then
     check "the screen stays on while PacketShark is in front (awake_apps)" \
