@@ -24,6 +24,28 @@
 #define ONE_WAY_MIN_OUT 8u    /* frames this device sent before one-sidedness is judged */
 #define ONE_WAY_LOG_P 6.907755 /* ln 1000: a silent spell that unlikely at the inbound rate seen */
 #define Z_BOUND 1.96          /* the bound put on a base window's own share or rate */
+#ifndef PPC_IN_DISP_BLOCK_S
+#define PPC_IN_DISP_BLOCK_S 5u /* seconds a block of counts spans when the dispersion is estimated */
+#endif
+#define PPC_IN_WITNESS_S 1u   /* seconds after a question's own in which the way back must be seen */
+#define DISP_MIN_DF 4u        /* blocks, less one a window, below which a dispersion is not estimated */
+#define DISP_Z 1.645          /* the dispersion is taken at its one-sided 95 % upper bound */
+
+/* How unlikely a run of silent seconds is: -ln(1 - p) a second, p the share
+ * of seconds that carried at least one frame (thinned by loss). Arrivals
+ * come in bursts (a transfer, then quiet), so the mean frame rate says
+ * nothing about how long a quiet spell may last; how often a second is not
+ * quiet does (G0.md §8). (1 - p)^run <= 1/1000 is a silence too long. */
+static double silence_hazard(uint32_t occupied, uint32_t seconds, double thin)
+{
+    double q;
+
+    if (!seconds || !occupied) {
+        return 0.0;
+    }
+    q = 1.0 - (double)occupied / seconds * (1.0 - thin);
+    return q <= 1e-9 ? 20.7 : -log(q); /* 20.7: ln 1e9, a second never quiet */
+}
 
 /* ---- life ---------------------------------------------------------------------------------- */
 
@@ -678,7 +700,13 @@ static int wait_watched(const struct ppc_intel *in, uint32_t t_ms)
         if (!x || x->flags != PPC_EVS_WATCHED) {
             return 0;
         }
-        back |= x->own_in > x->dns_ans;
+        /* The way back must be seen working when the answer was due: in the
+         * question's second or the next, not anywhere in the wait. A frame
+         * after a one-sided spell has ended says nothing of an answer due
+         * inside it (G0.md §8). */
+        if (s <= t_ms / 1000u + PPC_IN_WITNESS_S) {
+            back |= x->own_in > x->dns_ans;
+        }
     }
     return back;
 }
@@ -922,12 +950,26 @@ static void decide_share(struct ppc_in_cmp *c, int dir, const double f[2][2], co
     }
 }
 
-/* A rate whose harmful direction is higher: events over watched seconds.
+/* Poisson tails of a count over-dispersed by phi (quasi-Poisson): the
+ * count and its expectation divided by phi, the count rounded the way that
+ * favours the null (fewer for "at least", more for "at most"). phi = 1 is
+ * the plain Poisson test. */
+static uint32_t qge(double k, double mu, double phi)
+{
+    return ppc_in_poisson_ge_e6((uint32_t)floor(k / phi), mu / phi);
+}
+
+static uint32_t qle(double k, double mu, double phi)
+{
+    return ppc_in_poisson_le_e6((uint32_t)ceil(k / phi), mu / phi);
+}
+
+/* A rate whose harmful direction is higher: events over the seconds seen.
  * Loss hides events, so a rise can be hidden and a fall can be made. Each
  * side's true count lies between what was seen and that plus what the
  * stream may have lost (lost[side]: the larger of its own seconds' share
  * and the traffic's share; infinite when unknown). A verdict must hold at
- * the bound that works against it (G0.md §6):
+ * the bound that works against it (G0.md §6, §7):
  *   worse      the window's count as seen (it can only have been more)
  *              against the base's highest;
  *   better     the window's highest against the base as seen;
@@ -936,31 +978,113 @@ static void decide_share(struct ppc_in_cmp *c, int dir, const double f[2][2], co
  *              PPC_IN_MATERIAL_RATE_MIN more a minute, whichever is more).
  * The window's losses never make a rise: a claim of more events stands on
  * events seen. Where only the traffic-weighted share (loss spread evenly
- * over kinds and times) would decide, the verdict is CAN'T TELL. */
-static void decide_rate(struct ppc_in_cmp *c, const double f[2][2], const double lost[2])
+ * over kinds and times) would decide, the verdict is CAN'T TELL.
+ * Counts of broadcasts come in bursts (hosts waking, probing, scanning), so
+ * a window's sum varies more than a Poisson count's: phi, the dispersion
+ * estimated from the windows themselves (rate_dispersion()), widens every
+ * bound and test (G0.md §8). */
+static void decide_rate(struct ppc_in_cmp *c, const double f[2][2], const double lost[2], double phi)
 {
     double c0 = c->k[0];
     double w0 = c->n[0];
     double w1 = c->n[1];
     double hi0 = c0 + lost[0];
-    double up = (hi0 + Z_BOUND * sqrt(hi0 + 1.0) + 1.0) / w0 * w1;
-    double up_seen = (c0 + Z_BOUND * sqrt(c0 + 1.0) + 1.0) / w0 * w1;
-    double dn = c0 - Z_BOUND * sqrt(c0 + 1.0);
+    double up = (hi0 + Z_BOUND * sqrt(phi * (hi0 + 1.0)) + 1.0) / w0 * w1;
+    double up_seen = (c0 + Z_BOUND * sqrt(phi * (c0 + 1.0)) + 1.0) / w0 * w1;
+    double dn = c0 - Z_BOUND * sqrt(phi * (c0 + 1.0));
     double r0 = c0 / w0;
     double alt = r0 * PPC_IN_MATERIAL_RATE;
     double hi1 = c->k[1] + lost[1];
-    uint32_t c1 = c->k[1];
-    uint32_t c1hi = isfinite(hi1) && hi1 < 4.0e9 ? (uint32_t)ceil(hi1) : 0xffffffffu;
+    double c1 = c->k[1];
+    int hi1_known = isfinite(hi1) && hi1 < 4.0e9;
 
     if (alt < r0 + PPC_IN_MATERIAL_RATE_MIN / 60.0) {
         alt = r0 + PPC_IN_MATERIAL_RATE_MIN / 60.0;
     }
     dn = dn > 0.0 ? dn / w0 * w1 : 0.0;
-    settle(c, isfinite(up) ? ppc_in_poisson_ge_e6(c1, up) : 1000000u,
-           dn > 0.0 && c1hi != 0xffffffffu ? ppc_in_poisson_le_e6(c1hi, dn) : 1000000u,
-           f[1][1] >= 1.0 ? 0u : ppc_in_poisson_ge_e6(c1, scaled(up_seen, f[0][0], f[1][1])),
-           dn > 0.0 ? ppc_in_poisson_le_e6(c1, scaled(dn, f[0][1], f[1][0])) : 1000000u,
-           c1hi == 0xffffffffu ? 1000000u : ppc_in_poisson_le_e6(c1hi, alt * w1));
+    settle(c, isfinite(up) ? qge(c1, up, phi) : 1000000u,
+           dn > 0.0 && hi1_known ? qle(hi1, dn, phi) : 1000000u,
+           f[1][1] >= 1.0 ? 0u : qge(c1, scaled(up_seen, f[0][0], f[1][1]), phi),
+           dn > 0.0 ? qle(c1, scaled(dn, f[0][1], f[1][0]), phi) : 1000000u,
+           hi1_known ? qle(hi1, alt * w1, phi) : 1000000u);
+}
+
+/* The lower one-sided quantile of chi-square with df degrees of freedom at
+ * DISP_Z (Wilson-Hilferty; within a few per cent from df = 2 up). */
+static double chi2_lower(double df)
+{
+    double a = 2.0 / (9.0 * df);
+    double q = 1.0 - a - DISP_Z * sqrt(a);
+
+    return q > 0.0 ? df * q * q * q : 0.0;
+}
+
+/* The dispersion of a counted stream's window sums (DHCP DISCOVERs: 0, ARP
+ * requests: 1), from the two windows themselves: their seconds seen (watched
+ * whole, outside receive gaps) cut into blocks of PPC_IN_DISP_BLOCK_S in
+ * time order, the variance of the block counts about each window's own mean
+ * (so a change at the mark does not count as spread) pooled over both, over
+ * the mean block count. Blocks of that length absorb bursts shorter than
+ * them; Unit A's own traffic set the length (G0.md §8). The estimate is
+ * taken at its one-sided 95 % upper bound and never below 1 (Poisson).
+ * *df: the pooled degrees of freedom; below DISP_MIN_DF the caller cannot
+ * compare. */
+static double rate_dispersion(const struct ppc_intel *in, const uint32_t w[2][2], const uint8_t *gap, uint32_t ngap,
+                              unsigned which, uint32_t *df)
+{
+    double ss = 0.0;
+    double tot = 0.0;
+    uint32_t nb_all = 0;
+    uint32_t s0 = sec_ceil(w[0][0]);
+    unsigned i;
+
+    *df = 0;
+    for (i = 0; i < 2; i++) {
+        double blk[2u * (PPC_IN_WINDOW_MS / 1000u) / PPC_IN_DISP_BLOCK_S + 2u];
+        uint32_t nb = 0;
+        uint32_t fill = 0;
+        double acc = 0.0;
+        double mean = 0.0;
+        uint32_t s;
+        uint32_t j;
+
+        for (s = sec_ceil(w[i][0]); s < sec_ceil(w[i][1]); s++) {
+            const struct ppc_in_sec *x = sec_slot(in, s);
+
+            if (!x || x->flags != PPC_EVS_WATCHED || (s - s0 < ngap && gap[s - s0])) {
+                continue; /* not seen: neither part of a block nor a break in one */
+            }
+            acc += which ? x->arp_req : x->dhcp_disc;
+            if (++fill == PPC_IN_DISP_BLOCK_S && nb < sizeof(blk) / sizeof(blk[0])) {
+                blk[nb++] = acc;
+                acc = 0.0;
+                fill = 0;
+            }
+        }
+        if (nb < 2) {
+            continue;
+        }
+        for (j = 0; j < nb; j++) {
+            mean += blk[j];
+        }
+        mean /= nb;
+        for (j = 0; j < nb; j++) {
+            ss += (blk[j] - mean) * (blk[j] - mean);
+        }
+        tot += mean * nb;
+        nb_all += nb;
+        *df += nb - 1u;
+    }
+    if (*df < DISP_MIN_DF || tot <= 0.0) {
+        return 1.0;
+    }
+    {
+        double phi = ss / *df / (tot / nb_all);
+        double lo = chi2_lower((double)*df);
+
+        phi = lo > 0.0 ? phi * *df / lo : INFINITY;
+        return phi > 1.0 ? phi : 1.0;
+    }
 }
 
 /* Answer times: medians and Mann-Whitney over the answers seen. The answers
@@ -1064,10 +1188,15 @@ static int one_way(const struct ppc_in_vis *v)
  * (N1.1.md). */
 static int one_way_spell(const struct ppc_intel *in, uint32_t a, uint32_t m, uint32_t b, double f_hi)
 {
+    double lost[2u * (PPC_IN_WINDOW_MS / 1000u) + 2u];
+    uint32_t s0 = sec_ceil(a);
+    uint32_t nl = loss_by_second(in, a, b, lost, (uint32_t)(sizeof(lost) / sizeof(lost[0])));
     uint32_t s1 = sec_ceil(b);
     uint32_t sm = sec_ceil(m);
     uint64_t tin[2] = { 0, 0 };
     uint64_t tother[2] = { 0, 0 };
+    uint32_t occ_in[2] = { 0, 0 };
+    uint32_t occ_other[2] = { 0, 0 };
     uint32_t ws[2] = { 0, 0 };
     uint32_t run = 0;
     uint32_t out = 0;
@@ -1083,23 +1212,27 @@ static int one_way_spell(const struct ppc_intel *in, uint32_t a, uint32_t m, uin
             w = s >= sm;
             tin[w] += x->own_in;
             tother[w] += x->own_in > x->dns_ans ? x->own_in - x->dns_ans : 0u;
+            occ_in[w] += x->own_in > 0u;
+            occ_other[w] += x->own_in > x->dns_ans;
             ws[w]++;
         }
     }
     /* Inbound other than DNS answers, where there is any, so that a resolver
      * that stops answering is not taken for a path that stops delivering. */
     other = tother[0] + tother[1] > 0;
+    if (f_hi >= 1.0) {
+        return 0;
+    }
     for (w = 0; w < 2; w++) {
-        double r = ws[w] ? (double)(other ? tother[w] : tin[w]) / ws[w] : 0.0;
+        double r = silence_hazard(other ? occ_other[w] : occ_in[w], ws[w], f_hi);
 
         if (r > lam) {
             lam = r;
         }
     }
-    if (!(lam > 0.0) || f_hi >= 1.0) {
+    if (!(lam > 0.0)) {
         return 0;
     }
-    lam *= 1.0 - f_hi;
     for (s = sec_ceil(a); s < s1; s++) {
         const struct ppc_in_sec *x = sec_slot(in, s);
         uint32_t got;
@@ -1110,6 +1243,14 @@ static int one_way_spell(const struct ppc_intel *in, uint32_t a, uint32_t m, uin
         got = other ? (x->own_in > x->dns_ans ? x->own_in - x->dns_ans : 0u) : x->own_in;
         if (got) {
             run = out = 0;
+            continue;
+        }
+        if ((s - s0 < nl && lost[s - s0] > 0.0) || s * 1000u < in->reads_from_ms || (s + 1u) * 1000u > in->read_ms) {
+            /* Silence the readings explain (frames lost in it), or whose
+             * losses are not known, is no sign of a missing way back: it
+             * neither lengthens nor breaks a run. The questions waiting in
+             * it have no witness of the way back and stay undecided, which
+             * counts against every verdict (decide_share()). */
             continue;
         }
         run++;
@@ -1141,7 +1282,7 @@ static uint32_t recv_gaps(const struct ppc_intel *in, uint32_t a, uint32_t m, ui
     uint32_t s1 = sec_ceil(b);
     uint32_t sm = sec_ceil(m);
     uint32_t nl = loss_by_second(in, a, b, lost, (uint32_t)(sizeof(lost) / sizeof(lost[0])));
-    uint64_t got[2] = { 0, 0 };
+    uint32_t got[2] = { 0, 0 }; /* seconds in which some frame other than this device's own arrived */
     uint32_t ws[2] = { 0, 0 };
     uint32_t run_s[2u * (PPC_IN_WINDOW_MS / 1000u) + 2u];
     uint32_t run = 0;
@@ -1159,12 +1300,12 @@ static uint32_t recv_gaps(const struct ppc_intel *in, uint32_t a, uint32_t m, ui
 
         if (x && x->flags == PPC_EVS_WATCHED) {
             w = s >= sm;
-            got[w] += x->frames > x->own_out ? x->frames - x->own_out : 0u;
+            got[w] += x->frames > x->own_out;
             ws[w]++;
         }
     }
     for (w = 0; w < 2; w++) {
-        double r = ws[w] ? (double)got[w] / ws[w] * (1.0 - f[w][0]) : 0.0;
+        double r = silence_hazard(got[w], ws[w], f[w][0]);
 
         if (r > lam) {
             lam = r;
@@ -1213,6 +1354,8 @@ static void compute(const struct ppc_intel *in, const struct ppc_in_mark *m, uns
     double f[2][2];
     uint8_t gap[2u * (PPC_IN_WINDOW_MS / 1000u) + 2u];
     uint32_t gaps[2] = { 0, 0 };
+    uint32_t disp_df = 0;
+    double phi = 1.0;
     unsigned cls = metric_class(metric);
     int dns = cls == PPC_CLASS_DNS;
     uint32_t end = obs_end(in);
@@ -1306,6 +1449,8 @@ static void compute(const struct ppc_intel *in, const struct ppc_in_mark *m, uns
         for (i = 0; i < 2; i++) {
             c->stat[i] = c->n[i] ? c->k[i] * 6000u / c->n[i] : 0;
         }
+        phi = rate_dispersion(in, (const uint32_t(*)[2])w, gap, (uint32_t)sizeof(gap),
+                              metric == PPC_INM_ARP_REQUEST, &disp_df);
         break;
     }
     if (dns) {
@@ -1338,6 +1483,8 @@ static void compute(const struct ppc_intel *in, const struct ppc_in_mark *m, uns
         c->reason = PPC_INR_TOO_FEW;
     } else if (!dns && (c->n[0] < PPC_IN_MIN_WATCHED_S || c->n[1] < PPC_IN_MIN_WATCHED_S)) {
         c->reason = PPC_INR_TOO_FEW;
+    } else if (!dns && disp_df < DISP_MIN_DF) {
+        c->reason = PPC_INR_TOO_FEW; /* too few blocks seen to tell bursts from change */
     }
     if (c->reason) {
         c->verdict = PPC_INV_CANT_TELL;
@@ -1369,7 +1516,7 @@ static void compute(const struct ppc_intel *in, const struct ppc_in_mark *m, uns
 
             lost[i] = own > share ? own : share;
         }
-        decide_rate(c, f, lost);
+        decide_rate(c, f, lost, phi);
     }
     c->quality = c->verdict == PPC_INV_CANT_TELL                                              ? PPC_INQ_INSUFFICIENT
                  : (c->notes & (PPC_INN_UNWATCHED | PPC_INN_LOSS | PPC_INN_UNDECIDED)) != 0u ? PPC_INQ_DEGRADED

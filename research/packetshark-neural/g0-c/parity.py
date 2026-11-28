@@ -6,7 +6,7 @@ the same windows, and G0 counts for both. Development data only: E3a-R
 seeds 1000-1009 and 2000-2009 (both seen), and the first independent
 generator's seeds 5000-5009 (failed, now regression evidence).
 
-Usage: python3 parity.py BINARY OUT_JSON [e3a-dev|e3a-2000|indep] [n_seeds]
+Usage: python3 parity.py BINARY OUT_JSON e3a-dev|e3a-2000|e3a-3000|indep|indep2 [n_seeds]
 """
 import json
 import sys
@@ -29,8 +29,12 @@ def main():
         import indep_gen as G
         for sd in range(5000, 5000 + ns):
             rows += C.judge_c(C.indep_windows(G, sd, 2400), binary)
+    elif which == "indep2":
+        import indep_gen2 as G2
+        for sd in range(7000, 7000 + ns):
+            rows += C.judge_c(C.indep_windows(G2, sd, 2400), binary)
     else:
-        base = 0 if which == "e3a-dev" else 1000
+        base = {"e3a-dev": 0, "e3a-2000": 1000, "e3a-3000": 2000}[which]
         for sd in range(base, base + ns):
             rows += C.judge_c(C.e3a_windows(sd), binary)
     agree = Counter()

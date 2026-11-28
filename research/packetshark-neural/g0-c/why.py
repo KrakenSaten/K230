@@ -27,6 +27,10 @@ def main():
         import indep_gen as G
         for sd in range(5000, 5000 + ns):
             rows += C.indep_windows(G, sd, 2400, mirror=False)
+    elif which == "indep2":
+        import indep_gen2 as G2
+        for sd in range(7000, 7000 + ns):
+            rows += C.indep_windows(G2, sd, 2400, mirror=False)
     else:
         for sd in range(0, ns):
             rows += C.e3a_windows(sd, mirror=False)
