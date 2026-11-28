@@ -62,12 +62,12 @@ Give the reviewer the code and the documents, not this page's conclusions.
 
 The owner adopted the review's order on 27 November 2026 (INDEPENDENT-REVIEW §9). It sets priorities; every step that runs an experiment, touches a unit, downloads data, trains a model or adds code needs its own authorization.
 
-1. Decide F1 (privately; outside this record). Briefed to the owner privately on 27 November 2026 with a recommended mitigation; the decision is pending.
+1. Decide F1 (privately; outside this record). **Decided and done:** the owner approved the mitigation, and PR #197 merged it on 28 November 2026 (`e9bed13f`; ADR-016 amendments 2 and 3: an unprivileged identity, a network namespace and a seccomp allowlist for `pos-capture`). It was validated on Unit A, which was then restored exactly.
 2. Measure the unit's own evidence per minute in an ordinary capture, and schedule D9 as its own test. **Measured on Unit A on 27 November 2026** ([N1.1.md](N1.1.md) §10): at rest no DNS questions of its own in 15 minutes on Wi-Fi or Ethernet, ARP about 150 frames a minute, nothing lost. D9 not scheduled.
 3. Run the amended P7 session on Unit B (INDEPENDENT-REVIEW §7; kit and base recipe in `poc/K1-UNIT-A.md` §8 on the research branch).
 4. Host: redo E3a with a noisy, lagged coverage signal, faults inside gaps and 10 seeds. Until then no document cites the gate figures. **Done on 27 November 2026 (E3a-R, [N1.1.md](N1.1.md) §3), synthetic only.**
 5. Host: the CESNET study for Traffic DNA, with the ensemble open-set protocol (the download needs the owner's approval under D6).
-6. Build the rest of N1 beyond N1.0: the engine, the ledger, the loss-aware gate, the before/after statistics, laps and the INSIGHT face, with fixtures before code (the four replay cases of the first brief as scripted scenarios with expected ledgers). **Begun on 27 November 2026 (N1.1, host only):** the fixtures (five cases and one more) and the engine core; the helper hook, protocol 7 and the INSIGHT face wait for the decisions in [N1.1.md](N1.1.md) §8.
+6. Build the rest of N1 beyond N1.0: the engine, the ledger, the loss-aware gate, the before/after statistics, laps and the INSIGHT face, with fixtures before code. **N1.1 (host only, 27–28 November 2026):** the fixtures and the engine core; **G0 passed** on its third held-out validation ([G0.md](G0.md) §8). **N1.2 (PR #196):** a controlled bench on real protocol exchanges, then the helper hook, protocol 7 and the INSIGHT/WHEN face, observation-only first.
 7. Add the CPU scorer backend and its contract.
 8. Revisit the KPU only under G4-N. K2 as specified stays NO-GO.
 
