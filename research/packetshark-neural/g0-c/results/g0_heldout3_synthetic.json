@@ -1,0 +1,229 @@
+{
+ "run": "synthetic",
+ "windows": 24000,
+ "seeds": [
+  4000,
+  4001,
+  4002,
+  4003,
+  4004,
+  4005,
+  4006,
+  4007,
+  4008,
+  4009
+ ],
+ "engine": "C (intel_replay)",
+ "frozen_sha256": {
+  "ppc_intel.c": "d24c0753a8f638a9c5b6c25058be160c34b045c4c0cfcd48538b1eb8208724f7",
+  "ppc_intel.h": "ab05b3612cf3ea8665a3a6a278862d2c970867ba1902d813ae514442ada107b0",
+  "intel_replay.c": "d944a8fadb14e97020e59ee98e01c4b84bc4adeee3ae0fd07f29b6189824c421",
+  "cjudge.py": "036ea18812002cc3ab3a7326b47e43597417d3daadeb6428938b7a1e9bf6e6d8",
+  "heldout3.py": "94de45054afd606a3c058c097694360cb2df60d9163f20638af1c5f672f7c00a",
+  "e3a_r.py": "903889a9018ea532b345067ccf06062c031e6e3d5ab16218957a92f7f42ec1b4"
+ },
+ "binary_sha256": "7edb161b99093ede312bfb7362094b2c7d91807769b4217f8421f08e593d6239",
+ "g0": {
+  "false_claims": {
+   "clean": {
+    "k": 2,
+    "n": 3513,
+    "rate": 0.00057,
+    "upper95": 0.00172,
+    "pass_": true
+   },
+   "loss-uniform": {
+    "k": 0,
+    "n": 1008,
+    "rate": 0.0,
+    "upper95": 0.00268,
+    "pass_": true
+   },
+   "loss-burst": {
+    "k": 0,
+    "n": 1039,
+    "rate": 0.0,
+    "upper95": 0.0026,
+    "pass_": true
+   },
+   "hold": {
+    "k": 2,
+    "n": 1971,
+    "rate": 0.00101,
+    "upper95": 0.00306,
+    "pass_": true
+   },
+   "one-way": {
+    "k": 1,
+    "n": 2115,
+    "rate": 0.00047,
+    "upper95": 0.00212,
+    "pass_": true
+   },
+   "counters-failed": {
+    "k": 0,
+    "n": 3307,
+    "rate": 0.0,
+    "upper95": 0.00082,
+    "pass_": true
+   }
+  },
+  "pass": true,
+  "recall_material_under_loss": {
+   "k": 874,
+   "n": 1641,
+   "rate": 0.5326,
+   "lower95": 0.5123,
+   "pass_": true
+  },
+  "false_reassurance_material": {
+   "k": 146,
+   "n": 9889,
+   "rate": 0.0148
+  },
+  "abstention_material": {
+   "k": 4599,
+   "n": 9889,
+   "rate": 0.4651
+  },
+  "per_fault": {
+   "dns_down": {
+    "n": 2056,
+    "recall": 0.32,
+    "abstained": 0.661,
+    "no_change": 0.02
+   },
+   "dns_slow": {
+    "n": 2047,
+    "recall": 0.424,
+    "abstained": 0.523,
+    "no_change": 0.007
+   },
+   "servfail": {
+    "n": 1905,
+    "recall": 0.304,
+    "abstained": 0.652,
+    "no_change": 0.044
+   },
+   "arp_storm": {
+    "n": 1928,
+    "recall": 0.796,
+    "abstained": 0.201,
+    "no_change": 0.003
+   },
+   "dhcp_trouble": {
+    "n": 1953,
+    "recall": 0.724,
+    "abstained": 0.276,
+    "no_change": 0.001
+   },
+   "subtle_latency": {
+    "n": 2032,
+    "recall": 0.109,
+    "abstained": 0.583,
+    "no_change": 0.1
+   }
+  }
+ },
+ "counts": {
+  "false_claims": {
+   "clean": [
+    2,
+    3513
+   ],
+   "loss-uniform": [
+    0,
+    1008
+   ],
+   "loss-burst": [
+    0,
+    1039
+   ],
+   "hold": [
+    2,
+    1971
+   ],
+   "one-way": [
+    1,
+    2115
+   ],
+   "counters-failed": [
+    0,
+    3307
+   ]
+  },
+  "recall_material_under_loss": [
+   874,
+   1641
+  ],
+  "false_reassurance_material": [
+   146,
+   9889
+  ],
+  "abstention_material": [
+   4599,
+   9889
+  ],
+  "per_fault": {
+   "dns_down": [
+    657,
+    2056,
+    1358,
+    41
+   ],
+   "dns_slow": [
+    867,
+    2047,
+    1071,
+    15
+   ],
+   "servfail": [
+    579,
+    1905,
+    1243,
+    83
+   ],
+   "arp_storm": [
+    1534,
+    1928,
+    388,
+    6
+   ],
+   "dhcp_trouble": [
+    1413,
+    1953,
+    539,
+    1
+   ],
+   "subtle_latency": [
+    221,
+    2032,
+    1184,
+    203
+   ]
+  }
+ },
+ "small_on_material_faults": {
+  "dns_down": [
+   0,
+   2056
+  ],
+  "dns_slow": [
+   94,
+   2047
+  ],
+  "servfail": [
+   0,
+   1905
+  ],
+  "arp_storm": [
+   0,
+   1928
+  ],
+  "dhcp_trouble": [
+   0,
+   1953
+  ]
+ },
+ "seconds": 22.6
+}
