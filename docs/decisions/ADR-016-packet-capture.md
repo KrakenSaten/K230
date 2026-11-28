@@ -41,9 +41,9 @@ What PacketShark needs: a capture socket on one interface for as long as a captu
 
 - One process per capture, started by PacketShark over a socketpair with the Zabbix helper's spawn shape (`PR_SET_PDEATHSIG`, inherited descriptors closed), gone when the app is left.
 - It holds the socket, the decoder, the packets and the file writer. The shell receives formatted text for what is on screen.
-- It opens the capture as root, then drops every capability and sets `no_new_privs` before it parses a single frame.
+- It opens the capture as root, then drops every capability and sets `no_new_privs` before it parses a single frame. *(Since amendment 2, 2026-11-28, it also leaves uid 0 for an unprivileged identity of its own before that frame; rule 17.)*
 - Pro: ADR-004's proven shape with no new mechanism; no capture-capable process exists unless a person pressed START and is looking at the app; a decoder fault takes the helper, and the shell says so; the kernel closes the socket and reverts promiscuous mode when the process dies for any reason.
-- Con: not the letter of ADR-002; a fifth small line protocol; still uid 0, though without capabilities.
+- Con: not the letter of ADR-002; a fifth small line protocol; still uid 0, though without capabilities *(until amendment 2: an unprivileged identity since 2026-11-28)*.
 
 ## Decision
 
@@ -64,7 +64,7 @@ The rules that go with it:
 
 7. Default: headers, and the whole message only for network plumbing (ARP, ICMP, DNS, DHCP, NTP and their IPv6 and multicast relatives). Full packets only by a confirmed choice, per session, never remembered. *(HEADERS accepted by the owner, 2026-11-15; DESIGN_DECISIONS D7.)*
 8. Packets are held in the helper's memory, bounded (32 MiB), and are gone when the app is left. *(Memory only until SAVE and the helper as the owner of the packets accepted by the owner, 2026-11-15; D1, D10.)*
-9. A file is written only by SAVE (a later milestone; M3 has no SAVE and writes no capture file), to `/root/Captures`, 0600 in a 0700 folder, never anywhere else and never to `/tmp`.
+9. A file is written only by SAVE (a later milestone; M3 has no SAVE and writes no capture file), to `/root/Captures`, 0600 in a 0700 folder, never anywhere else and never to `/tmp`. *(Amendment 2, 2026-11-28: the folder, never a file, is prepared when a capture starts, while the helper may still reach it: made 0700 if missing, owned by the capture identity of rule 17, refused if it is a link or belongs to anyone else. SAVE writes into it only through the descriptor opened then. The files already in it keep their owner.)*
 10. The app lists saved captures with their size and age and deletes them on request, with a confirmation.
 11. Nothing is uploaded or sent. The app and its helper have no network client code.
 12. Neither process logs packet content, addresses or names. The helper logs lifecycle lines only.
@@ -78,10 +78,10 @@ The rules that go with it:
 
 **Privilege**
 
-17. The helper drops all capabilities and sets `no_new_privs` after the capture is open. A new capture is a new process. The helper runs at nice 5 *(accepted by the owner, 2026-11-15; D5)*.
+17. The helper drops all capabilities and sets `no_new_privs` after the capture is open. A new capture is a new process. The helper runs at nice 5 *(accepted by the owner, 2026-11-15; D5)*. **Amendment 2 (approved by the owner on 2026-11-28): least privilege before untrusted data.** After its capture socket, its lock, its log and its captures folder are open, and before it reads a frame, the helper leaves uid 0 for its own unprivileged service identity, `pos-capture` (uid and gid 65532, defined in the image, used numerically), with no supplementary groups. It empties every capability set, the bounding set included, and sets `no_new_privs`. It reads all of it back from `/proc/self/status` and checks that uid 0 cannot be taken back. If any step fails or does not read back as expected, the capture is refused (`error privilege`) and no frame is processed: it fails closed. The identity change clears the parent-death signal, so the helper sets it again and checks that its parent is still the shell. A session closes every inherited descriptor before it opens its own. The log keeps the one descriptor it opened before the drop.
 18. All packet bytes are treated as hostile: the decoder is bounds-checked, allocation-free, fuzzed, and never runs in the shell.
 
-Revisit when: background capture is wanted; a second app wants packets; Doors gets per-service users (then the helper gets its own); `CONFIG_SECCOMP` is confirmed on the kernel (then a syscall allowlist).
+Revisit when: background capture is wanted; a second app wants packets. *(Done by amendment 2: the helper has its own identity.)* `CONFIG_SECCOMP_FILTER` is set in the image's kernel build (VERIFIED in the build configuration, 2026-11-27), so a syscall allowlist is the next hardening; it is not part of amendment 2.
 
 ## Consequences
 
@@ -93,7 +93,12 @@ Future: a capture indicator derived from the kernel (`/proc/net/packet`), as `hw
 
 Risks:
 
-- The helper is uid 0 without capabilities, not an unprivileged user. It can still write files root owns. A decoder exploit could therefore modify files, though not open sockets, change interfaces or load code into the kernel. Accepted for v0.1 because the alternative needs platform work this ADR should not smuggle in.
+- *(Until amendment 2.)* The helper was uid 0 without capabilities, not an unprivileged user. An owner's file permissions need no capability, so it could still open, by permission alone, files and device nodes that root owns. A decoder exploit was therefore less contained than this line first said: "though not open sockets, change interfaces or load code into the kernel" overstated it. Accepted for v0.1; corrected on 2026-11-28.
+- *(Since amendment 2, 2026-11-28.)* The helper runs as `pos-capture`. A decoder exploit holds that identity:
+  - what it can still do: use the capture socket and the descriptors the helper already holds (the lock, the log, the captures folder); read what any user may read; write, replace or delete the captures in its own folder;
+  - what it can no longer do: open root's files or device nodes, write anywhere else, make a socket, or become root again.
+
+  Kernel bugs stay reachable through system calls until a seccomp filter exists. Accepted.
 - Saved captures are readable by anyone who can log in as root over the network. Stated on screen; not solvable here.
 - A helper crash loses the unsaved session. Intended: the alternative is writing every capture to storage.
 - DNS names and DHCP host names are kept by default. They are what the tool is for; the setup screen says so.
@@ -109,7 +114,8 @@ Classes as in `AGENTS.md`. The hardware results of M0 to M3 are in `docs/apps/PA
 - libpcap 1.10.5 with TPACKET_V3 present on the v0.4.0 image: VERIFIED on Unit A (feasibility report §2.1).
 - Promiscuous mode by `PACKET_MR_PROMISC` reverting when the socket closes: DOCUMENTED (Linux packet(7)); not exercised on the unit, which is why rule 3 keeps it off.
 - Dropping all capabilities with `capset`, the bounding set and `no_new_privs`, and reading the open socket afterwards: VERIFIED on Unit A (2026-11-16): `CapInh`, `CapPrm`, `CapEff`, `CapBnd`, `CapAmb` all 0, `NoNewPrivs: 1`, and the capture went on reading frames (docs/apps/PACKETSHARK.md §9.2).
-- `CONFIG_SECCOMP` on the v0.4.0 kernel: not checked.
+- `CONFIG_SECCOMP` and `CONFIG_SECCOMP_FILTER`: set in the `k230_pocketos_defconfig` kernel build (VERIFIED in the build configuration, 2026-11-27); no filter is installed yet.
+- The identity change of amendment 2 (uid and gid 65532 in every slot, no groups, every capability set empty including the bounding set, `no_new_privs`, not dumpable, uid 0 refused afterwards; root's files and a root-owned 0660 device node refused to the identity; SAVE through the prepared folder; the parent-death signal set again; a failed reduction refusing the capture with no frame processed): VERIFIED on the host as root (WSL Ubuntu 22.04: `tests/capture_priv_test.c`, `tests/pos_capture_priv_test.sh`). Not yet run on a unit.
 - Helper lifecycle (spawn, watchdog, abandon, crash and kill reported): VERIFIED on the host for `pos-capture` (tests/psk_session_test.c, tests/packetshark_app_test.c) and on Unit A (open, START, STOP, LEAVE, `kill -9`, ten cycles with no helper left).
 - The screen held awake while PacketShark is in front, and only then: VERIFIED on Unit A (`shell.info` power.held).
 - Lint for receive-only, one libpcap include, a capture file written only by SAVE (new, 0600, never followed), saved captures never opened by the shell, no log line from a packet: `tests/packetshark_lint.sh`.
@@ -119,6 +125,7 @@ Classes as in `AGENTS.md`. The hardware results of M0 to M3 are in `docs/apps/PA
 
 | Date | Decision | By |
 | --- | --- | --- |
+| 2026-11-28 | **Amendment 2 approved** (F1 hardening, mitigation 1): the helper runs under its own unprivileged service identity before it reads untrusted data, and fails closed (rule 17); the captures folder is prepared at START and owned by that identity (rule 9); the risk wording corrected. Every other rule stands | Product owner |
 | 2026-11-22 | **Amendment 1 accepted** (`ADR-016-amendment-1-companion.md`): rules 1 and 11 reworded, rules 1a, 11a, 19, 20 and 21 added, for a paired companion; every other rule and accepted risk stands. Listed first here because it changes the rules below | Product owner |
 | 2026-11-15 | Accepted with the design package: the helper owns the packets and the shell keeps at most 48 rows (D1); the helper runs at nice 5 (D5); HEADERS is the default for what is stored (D7); captures stay in memory until SAVE (D10) | Product owner |
 | 2026-11-16 | **ADR-016 approved, subject to the documented security constraints** (rules 1 to 18 and the accepted risks; see Status) | Product owner |

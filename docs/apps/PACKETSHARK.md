@@ -288,7 +288,31 @@ From the simulator (documentation addresses only): MARK on LIVE; the repeated-DI
 
 ## 5. Privilege
 
-All Doors processes run as root (docs/ARCHITECTURE.md). After its capture socket is open, the helper sets `no_new_privs`, clears the bounding set, empties its capability sets with `capset`, reads `/proc/self/status` back and reports what it found (`note caps ...`). A decoder fault can then still write files root owns, but cannot open sockets, change interfaces or load code into the kernel. On Unit A every capability set, the bounding set included, reads 0 with `NoNewPrivs: 1` while the capture runs (VERIFIED, §9.2). File capabilities, a dedicated user and seccomp are not available on the image or not checked (ADR-016).
+All Doors processes run as root (docs/ARCHITECTURE.md). The capture helper does not stay root: it applies **least privilege before it reads untrusted data** (ADR-016 rule 17, amendment 2, 2026-11-28; `tools/capture/capture_priv.c`).
+
+1. **When a session opens**, it closes every descriptor it inherited, so only stdin and stdout (the shell's socketpair) and stderr (`/dev/null`) remain. Then it opens its log.
+2. **At START, still as root**, it:
+   - takes its lock and opens the capture source;
+   - prepares its captures folder (made 0700 if missing; refused if it is a link or someone else's; owned by the capture identity) and keeps a descriptor to it.
+3. **Before the first frame is read**, it:
+   - sets `no_new_privs` and clears the bounding set;
+   - leaves uid 0 for its own identity `pos-capture`, uid and gid 65532 with no supplementary groups (defined in the image, used numerically);
+   - empties every capability set and marks itself not dumpable.
+4. **It proves it.** It reads `/proc/self/status` back, checks that uid 0 cannot be taken back, and reports `note caps ...` and `note identity switched uid=65532 gid=65532 groups=0`. Any step that fails, or any check that does not read back as expected, **refuses the capture** (`error privilege`, logged without a packet), and no frame is processed.
+5. **It sets its parent-death signal again**, which the identity change clears, so it still dies with the shell.
+
+The log keeps the descriptor opened in step 1 and is never rotated or reopened by the helper.
+
+**What this leaves a decoder fault.** It holds `pos-capture`: the open capture socket, the lock, the log and the captures folder. It can write, replace or delete the captures in that folder, and read what any user may read. It cannot open root's files or device nodes, write anywhere else, make a socket, or become root again. A helper started without root (the host tests) has no identity to leave: it still drops what it holds, checks it and says so (`note identity unprivileged ...`).
+
+**SAVE** writes through the folder's descriptor (`openat`, `renameat`, `fstatvfs`), so it needs no path into `/root`. New captures belong to `pos-capture`, 0600, in its 0700 folder. Captures saved before amendment 2 keep their owner. The shell, which is root, lists and deletes all of them as before.
+
+**Verified.**
+
+- On Unit A, before amendment 2 (§9.2): every capability set, the bounding set included, read 0 with `NoNewPrivs: 1` while the capture ran (VERIFIED).
+- The identity change, VERIFIED on the host as root (`make packetshark-priv-test` under `wsl -u root`): uid and gid 65532, no groups, no capabilities, `no_new_privs`, not dumpable; root's files and a root-owned 0660 device node refused; no raw socket; uid 0 refused; SAVE into the prepared folder; the helper dying with its parent; a forced failure refusing the capture.
+- **Not yet run on a unit.**
+- Seccomp: the kernel build has `CONFIG_SECCOMP_FILTER`; no filter is installed yet.
 
 Promiscuous mode is not offered in this version. The helper accepts the flag (libpcap sets it by socket membership, which the kernel reverts when the socket closes, DOCUMENTED, packet(7)), but the app shows OFF and takes no tap on the row until the reversion is verified on the hardware.
 
