@@ -8,6 +8,7 @@
 #include "psk_net.h"
 
 #include <math.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -422,8 +423,12 @@ const char *psk_exit_text(enum psk_exit e, int value, char *buf, size_t buflen)
 {
     switch (e) {
     case PSK_EXIT_CRASHED:
-        /* SIGKILL is never the helper's own fault: something killed it. */
-        snprintf(buf, buflen, "%s (SIG %d)", value == 128 + 9 ? "KILLED" : "CRASHED",
+        /* SIGKILL is never the helper's own fault: something killed it.
+         * SIGSYS is its system call filter ending it (ADR-016 rule 17,
+         * amendment 3): a call outside the allow list, told apart so that
+         * a missing entry is found, not taken for a crash. */
+        snprintf(buf, buflen, "%s (SIG %d)",
+                 value == 128 + 9 ? "KILLED" : value == 128 + SIGSYS ? "FILTERED" : "CRASHED",
                  value > 128 ? value - 128 : value);
         break;
     case PSK_EXIT_HUNG:

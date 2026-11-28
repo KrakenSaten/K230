@@ -2360,7 +2360,7 @@ PPC_OBJS := $(PPC_CORE_OBJS) $(PPC_SRC_OBJS) $(PPC_LIVE_OBJ)
 # built and tested on the host, not linked into pos-capture until its hook,
 # protocol and screen are approved.
 PPC_INTEL_OBJS := $(PPC_DIR)/ppc_intel.o
-POS_CAPTURE_OBJS := tools/capture/pos_capture.o $(PPC_OBJS) $(PATHS_OBJS) $(LOG_OBJS)
+POS_CAPTURE_OBJS := tools/capture/pos_capture.o tools/capture/capture_priv.o $(PPC_OBJS) $(PATHS_OBJS) $(LOG_OBJS)
 PSK_DIR := apps/packetshark
 PSK_OBJS := $(PSK_DIR)/psk_session.o $(PSK_DIR)/psk_model.o $(PSK_DIR)/psk_net.o $(PSK_DIR)/psk_saves.o \
             $(PSK_DIR)/psk_ev.o
@@ -2369,7 +2369,7 @@ PACKETSHARK_TESTS := tests/ppc_decode_test tests/ppc_pcapfile_test tests/ppc_sto
                      tests/ppc_view_test tests/ppc_dissect_test tests/ppc_signals_test tests/ppc_net_test \
                      tests/ppc_evid_test tests/ppc_evid_mkfixtures tests/pos-capture-testhooks \
                      tests/psk_model_test tests/psk_net_test tests/psk_ev_test tests/psk_session_test \
-                     tests/psk_remote_test tests/ppc_intel_test
+                     tests/psk_remote_test tests/ppc_intel_test tests/capture_priv_test
 
 tools/capture/pos-capture: $(POS_CAPTURE_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(PPC_LIBS)
@@ -2403,8 +2403,21 @@ tests/ppc_intel_test.o: tests/ppc_intel_fixtures.h tests/ppc_evid_fixtures.h
 tests/pos_capture_hooks.o: tools/capture/pos_capture.c
 	$(CC) $(ALL_CFLAGS) -DPOS_CAPTURE_TEST_HOOKS=1 -c -o $@ $<
 
-tests/pos-capture-testhooks: tests/pos_capture_hooks.o $(PPC_OBJS) $(PATHS_OBJS) $(LOG_OBJS)
+tests/capture_priv_hooks.o: tools/capture/capture_priv.c tools/capture/capture_priv.h
+	$(CC) $(ALL_CFLAGS) -DPOS_CAPTURE_TEST_HOOKS=1 -c -o $@ $<
+
+tests/pos-capture-testhooks: tests/pos_capture_hooks.o tests/capture_priv_hooks.o $(PPC_OBJS) $(PATHS_OBJS) $(LOG_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(PPC_LIBS)
+
+# The helper's least privilege (ADR-016 rule 17, amended): the identity
+# switch and its checks, in child processes. Run as root it tests the switch
+# itself (`make packetshark-priv-test` under sudo, or `wsl -u root`); without
+# root it tests the unprivileged path and says what it skipped.
+tests/capture_priv_test.o: tests/capture_priv_test.c tools/capture/capture_priv.h
+	$(CC) $(ALL_CFLAGS) -DPOS_CAPTURE_TEST_HOOKS=1 -c -o $@ $<
+
+tests/capture_priv_test: tests/capture_priv_test.o tests/capture_priv_hooks.o $(PATHS_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
 
 tests/psk_model_test tests/psk_net_test: tests/%: tests/%.o $(PSK_DIR)/psk_model.o $(PSK_DIR)/psk_net.o $(PPC_APP_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) -lm
@@ -2432,6 +2445,8 @@ PACKETSHARK_TEST_RUN = ./tests/ppc_decode_test && ./tests/ppc_pcapfile_test && \
     ./tests/psk_session_test tools/capture/pos-capture && \
     bash tests/pos_capture_test.sh tools/capture/pos-capture tests/ppc_mkfixtures && \
     bash tests/pos_capture_evid_test.sh tools/capture/pos-capture tests/ppc_evid_mkfixtures tests/pos-capture-testhooks && \
+    ./tests/capture_priv_test && \
+    bash tests/pos_capture_priv_test.sh tools/capture/pos-capture tests/pos-capture-testhooks && \
     bash tests/packetshark_lint.sh
 packetshark-test: tools/capture/pos-capture $(PACKETSHARK_TESTS)
 	$(PACKETSHARK_TEST_RUN)
@@ -2479,9 +2494,10 @@ packetshark-san-test:
 	    $(PSK_DIR)/psk_session.c $(PSK_DIR)/psk_model.c $(PSK_DIR)/psk_net.c $(PSK_DIR)/psk_saves.c \
 	    $(PPC_DIR)/ppc_proto.c -lm
 	$(CC) $(PSK_SAN_CFLAGS) -o $(PSK_SAN_DIR)/tools/capture/pos-capture tools/capture/pos_capture.c \
-	    $(PPC_SAN_SRCS) core/pocketpaths.c core/pocketlog/pocketlog.c
+	    tools/capture/capture_priv.c $(PPC_SAN_SRCS) core/pocketpaths.c core/pocketlog/pocketlog.c
 	$(CC) $(PSK_SAN_CFLAGS) -DPOS_CAPTURE_TEST_HOOKS=1 -o $(PSK_SAN_DIR)/tests/pos-capture-testhooks \
-	    tools/capture/pos_capture.c $(PPC_SAN_SRCS) core/pocketpaths.c core/pocketlog/pocketlog.c
+	    tools/capture/pos_capture.c tools/capture/capture_priv.c $(PPC_SAN_SRCS) core/pocketpaths.c \
+	    core/pocketlog/pocketlog.c
 	cd $(PSK_SAN_DIR) && ./tests/ppc_decode_test && ./tests/ppc_pcapfile_test && \
 	    ASAN_OPTIONS=allocator_may_return_null=1 ./tests/ppc_store_test && \
 	    ./tests/ppc_stats_test && ./tests/ppc_proto_test && ./tests/ppc_view_test && ./tests/ppc_dissect_test && \
@@ -2501,7 +2517,16 @@ packetshark-san-test:
 packetshark-intel-test: tests/ppc_intel_test
 	./tests/ppc_intel_test && bash tests/packetshark_lint.sh
 
-.PHONY: packetshark-test packetshark-n1-test packetshark-san-test packetshark-intel-test
+# The helper's least privilege alone (F1 hardening, ADR-016 rule 17
+# amended). As root it proves the identity switch, what the identity can no
+# longer open, SAVE through the prepared folder, the parent-death signal and
+# the closed failure; without root it runs what needs none and says so.
+packetshark-priv-test: tools/capture/pos-capture tests/pos-capture-testhooks tests/capture_priv_test
+	./tests/capture_priv_test && \
+	    bash tests/pos_capture_priv_test.sh tools/capture/pos-capture tests/pos-capture-testhooks && \
+	    bash tests/packetshark_lint.sh
+
+.PHONY: packetshark-test packetshark-n1-test packetshark-san-test packetshark-intel-test packetshark-priv-test
 
 # Browser (docs/apps/BROWSER.md, ADR-009 accepted).
 #

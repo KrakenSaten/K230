@@ -72,6 +72,10 @@ void pocketlog_set_level(enum pocketlog_level level);
 enum pocketlog_level pocketlog_get_level(void);
 const char *pocketlog_dir(void);
 void pocketlog_close(void);
+/* Keep the open log descriptor for the life of the process: never rotate
+ * or reopen it. For a process about to give up the right to open its log
+ * (pos-capture after its privilege drop, ADR-016 rule 17). */
+void pocketlog_keep(void);
 
 void pocketlog_write(enum pocketlog_level level, const char *fmt, ...)
     __attribute__((format(printf, 2, 3)));

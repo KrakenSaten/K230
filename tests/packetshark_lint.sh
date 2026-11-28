@@ -167,6 +167,87 @@ check "and for every answer of evidence, at STOP before the windows close, and o
        grep -q 'read_drops(h);.*hd.now_ms = ev_tick(h);' &&
        hbody stop_capture | grep -n 'read_drops(h);\|ppc_evid_stop(' | cut -d: -f2 | tr '\n' ' ' |
        grep -q 'read_drops(h);.*ppc_evid_stop(' && hbody tick | grep -q 'read_drops(h);' && echo 1 || echo 0)"
+# Least privilege before untrusted data (F1 hardening, ADR-016 rule 17
+# amended): the helper leaves root for its own identity after the source
+# opens and before a frame is read, and a failed reduction refuses the
+# capture; SAVE reaches its folder only through the descriptor prepared
+# before the drop; the failure switch exists only in the test build.
+P=tools/capture/capture_priv.c
+check "a start drops privileges after the source opens and before the capture state, and fails closed" \
+    "$(hbody cmd_start | grep -n 'h->src_open = 1;\|capture_captures_dir(\|drop_privileges(h, why, sizeof(why))\|start_undo(h);\|say_error(h, \"privilege\", why);\|_exit(3);\|h->state = PPC_STATE_CAPTURING;' |
+       cut -d: -f2 | tr '\n' ' ' |
+       grep -q 'h->src_open = 1;.*capture_captures_dir(.*drop_privileges(h, why, sizeof(why)).*start_undo(h);.*say_error(h, "privilege", why);.*_exit(3);.*h->state = PPC_STATE_CAPTURING;' &&
+       [ "$(code $H | grep -c 'drop_privileges(h')" = "1" ] && echo 1 || echo 0)"
+check "frames are analysed only while capturing, so none before the drop" \
+    "$(hbody on_frame | grep -q 'if (h->state != PPC_STATE_CAPTURING) {' && echo 1 || echo 0)"
+check "the identity switch: no_new_privs, bounding set, own network namespace, groups, gid, uid, capabilities, checks read back" \
+    "$(code $P | grep -n 'PR_SET_NO_NEW_PRIVS, 1\|PR_CAPBSET_DROP, cap\|unshare(CLONE_NEWNET)\|setgroups(0, NULL)\|setresgid(gid, gid, gid)\|setresuid(id, id, id)\|SYS_capset\|read_status(p)\|network namespace check\|setresuid(0, 0, 0)' |
+       cut -d: -f2 | tr '\n' ' ' |
+       grep -q 'PR_SET_NO_NEW_PRIVS, 1.*PR_CAPBSET_DROP, cap.*unshare(CLONE_NEWNET).*setgroups(0, NULL).*setresgid(gid, gid, gid).*setresuid(id, id, id).*SYS_capset.*read_status(p).*network namespace check.*setresuid(0, 0, 0)' &&
+       echo 1 || echo 0)"
+check "the parent-death signal is set again after the identity change" \
+    "$(hbody drop_privileges | grep -n 'capture_drop(&p)\|prctl(PR_SET_PDEATHSIG, SIGTERM' | cut -d: -f2 | tr '\n' ' ' |
+       grep -q 'capture_drop(&p).*prctl(PR_SET_PDEATHSIG, SIGTERM' && echo 1 || echo 0)"
+check "the log keeps its descriptor across the drop" \
+    "$(hbody drop_privileges | grep -n 'pocketlog_keep();\|capture_drop(&p)' | cut -d: -f2 | tr '\n' ' ' |
+       grep -q 'pocketlog_keep();.*capture_drop(&p)' && echo 1 || echo 0)"
+# The system call filter (amendment 3): the drop's last step, after the
+# parent-death signal and its check; once, from there alone; ends what it
+# does not list, with no logging, tracing or user-notification action that
+# would let a call through; the network side, copies of descriptors,
+# execution and prctl are never in its plain allow list; after STOP the
+# socket's number stays taken.
+cpbody() { sed -n -E "/^(static )?[a-z ]+\*?$1\(/,/^}/p" $P; }
+check "the system call filter is the drop's last step, after the parent-death signal and its check, and fails closed" \
+    "$(hbody drop_privileges | grep -n 'capture_drop(&p)\|prctl(PR_SET_PDEATHSIG, SIGTERM\|getppid() != h->parent\|capture_confine(sfd, &p)\|return 0;' |
+       cut -d: -f2 | tr '\n' ' ' |
+       grep -q 'capture_drop(&p).*prctl(PR_SET_PDEATHSIG, SIGTERM.*getppid() != h->parent.*capture_confine(sfd, &p).*return 0;' &&
+       [ "$(code $H | grep -c 'capture_confine(')" = "1" ] && echo 1 || echo 0)"
+check "the filter checks the architecture, ends whatever it does not list, and has no log, trace, trap or notify action" \
+    "$(cpbody build_filter | grep -q 'offsetof(struct seccomp_data, arch)' &&
+       cpbody build_filter | code /dev/stdin | tail -3 | tr -d '\n ' | grep -q 'EMIT(F_RET(SECCOMP_RET_KILL_PROCESS));returnn;}' &&
+       ! code $P | grep -qE 'SECCOMP_RET_(LOG|TRACE|TRAP|USER_NOTIF)' && code $P | grep -q 'SECCOMP_FILTER_FLAG_TSYNC' &&
+       echo 1 || echo 0)"
+SY=platforms/k230/rootfs_overlay/etc/sysctl.d/60-doors-links.conf
+check "the image protects hard and symbolic links (fs.protected_hardlinks and fs.protected_symlinks = 1, nothing else)" \
+    "$([ "$(grep -vE '^[[:space:]]*(#|$)' $SY | tr -d ' ')" = "$(printf 'fs.protected_hardlinks=1\nfs.protected_symlinks=1')" ] &&
+       echo 1 || echo 0)"
+check "the leak-scan opt-out exists only in sanitizer builds, and only once the filter is on" \
+    "$([ "$(code $P | grep -c '__lsan_is_turned_off\|confined')" = "$(sed -n '/^#if defined(__SANITIZE_ADDRESS__)$/,/^#endif$/p' $P | code /dev/stdin | grep -c '__lsan_is_turned_off\|confined')" ] &&
+       sed -n '/^#if defined(__SANITIZE_ADDRESS__)$/,/^#endif$/p' $P | grep -q 'confined = 1;' && echo 1 || echo 0)"
+plain=$(sed -n '/^static const int allow_plain\[\] = {$/,/^};$/p' $P | code /dev/stdin)
+check "the plain allow list never names the network side, a descriptor copy, execution, prctl, ptrace or memory protection" \
+    "$([ -n "$plain" ] &&
+       ! echo "$plain" | grep -qwE 'SYS_(socket|socketpair|bind|connect|listen|accept|accept4|setsockopt|sendto|sendmsg|sendmmsg|write|writev|pwrite64|pwritev|pwritev2|ioctl|dup|dup2|dup3|fcntl|execve|execveat|prctl|ptrace|mmap|mprotect|seccomp|process_vm_writev|splice|vmsplice|tee|sendfile|copy_file_range|io_uring_setup|io_submit|pidfd_getfd|pidfd_open|clone|clone3|fork|vfork|kill|tgkill|tkill|linkat|symlinkat|mknodat|mkdirat)' &&
+       echo 1 || echo 0)"
+check "the filter is built only through EMIT, which never writes past its array; tgkill goes to the helper itself alone" \
+    "$(! cpbody build_filter | code /dev/stdin | grep -q 'f\[n++\]' && code $P | grep -q 'if (n >= max) {' &&
+       cpbody build_filter | grep -q 'SYS_tgkill, 0, 4' && cpbody build_filter | grep -q '(uint32_t)self, 0, 1' &&
+       code $P | grep -q 'build_filter(f, PROG_MAX, capture_fd, getpid())' && echo 1 || echo 0)"
+check "writes and sendto are refused on the capture socket, sendto to any address; after STOP its number stays taken" \
+    "$(cpbody build_filter | grep -q 'SYS_write, 1, 0' && cpbody build_filter | grep -q 'SYS_sendto, 0, 8' &&
+       cpbody build_filter | grep -q 'F_LD(ARG_LO(4))' &&
+       hbody stop_capture | grep -n 'ppc_source_close(&h->src);\|capture_reserve_fd(h->conf_fd)' | cut -d: -f2 | tr '\n' ' ' |
+       grep -q 'ppc_source_close(&h->src);.*capture_reserve_fd(h->conf_fd)' && echo 1 || echo 0)"
+hits=$(code $H | grep -nE '\b(open|unlink|rename|lstat|statvfs)\(h->save_' )
+check "SAVE writes, renames and removes only through the captures folder's descriptor" \
+    "$([ -z "$hits" ] && code $H | grep -q 'openat(h->cap_dirfd, h->save_part' &&
+       code $H | grep -q 'renameat(h->cap_dirfd, h->save_part, h->cap_dirfd, h->save_path)' && echo 1 || echo 0)"
+check "the privilege-failure switch is in the test build alone" \
+    "$([ "$(code $H | grep -c 'POS_CAPTURE_TEST_DROP_FAIL')" = "1" ] &&
+       sed -n '/^#if POS_CAPTURE_TEST_HOOKS$/,/^#endif$/p' $H | grep -q 'POS_CAPTURE_TEST_DROP_FAIL' &&
+       sed -n '/^#if POS_CAPTURE_TEST_HOOKS$/,/^#endif$/p' $P | grep -q 'test_fail' &&
+       [ "$(code $P | grep -c 'test_fail')" = "$(sed -n '/^#if POS_CAPTURE_TEST_HOOKS$/,/^#endif$/p' $P | code /dev/stdin | grep -c 'test_fail')" ] &&
+       echo 1 || echo 0)"
+check "a session closes every inherited descriptor, however high, before it opens its own" \
+    "$(sed -n '/strcmp(argv\[1\], \"session\")/,/run_session(spec)/p' $H | grep -n 'close_inherited();\|pocketlog_init(' | cut -d: -f2 | tr '\n' ' ' |
+       grep -q 'close_inherited();.*pocketlog_init(' && hbody close_inherited | grep -q 'SYS_close_range, 3u, ~0u' &&
+       hbody close_inherited | grep -q '_SC_OPEN_MAX' && echo 1 || echo 0)"
+check "a captures folder is handed to the identity only if just made, already its own, or a root-only Captures" \
+    "$(code $P | grep -q 'int may = ours || (sb.st_uid == 0 && (created || captures_by_name(fd, dir)));' &&
+       code $P | grep -q 'strcmp(base, \"Captures\") == 0' && code $P | grep -q '(psb.st_mode & 022) == 0' && echo 1 || echo 0)"
+check "the saved captures list only single-name regular files: no link, no second name of a file elsewhere" \
+    "$(code $A/psk_saves.c | grep -q '!S_ISREG(sb.st_mode) || sb.st_nlink != 1' && echo 1 || echo 0)"
 check "the counter-failure switch is in the test build alone: read once, inside #if POS_CAPTURE_TEST_HOOKS" \
     "$([ "$(code $H | grep -c 'getenv("POS_CAPTURE_TEST_STATS_FAIL")')" = "1" ] &&
        sed -n '/^#if POS_CAPTURE_TEST_HOOKS$/,/^#endif$/p' $H | grep -q 'getenv("POS_CAPTURE_TEST_STATS_FAIL")' &&
@@ -190,8 +271,10 @@ check "the window after's count of lost frames is kept as readings are told, nev
        cbody spell_to_mark | grep -q 'm->side\[1\].lost += sp->lost;' && echo 1 || echo 0)"
 check "the analysis-off switch is in the test build alone: read once, inside #if POS_CAPTURE_TEST_HOOKS, which is 0 unless the test object sets it"     "$([ "$(code $H | grep -c 'getenv("POS_CAPTURE_TEST_NO_ANALYZER")')" = "1" ] &&
        sed -n '/^#if POS_CAPTURE_TEST_HOOKS$/,/^#endif$/p' $H | grep -q 'getenv("POS_CAPTURE_TEST_NO_ANALYZER")' &&
-       grep -q '^#define POS_CAPTURE_TEST_HOOKS 0$' $H && [ "$(grep -c 'DPOS_CAPTURE_TEST_HOOKS=1' Makefile)" = "2" ] &&
+       grep -q '^#define POS_CAPTURE_TEST_HOOKS 0$' $H && grep -q '^#define POS_CAPTURE_TEST_HOOKS 0$' tools/capture/capture_priv.h &&
+       [ "$(grep -c 'DPOS_CAPTURE_TEST_HOOKS=1' Makefile)" = "4" ] &&
        grep -q '^tests/pos_capture_hooks.o: tools/capture/pos_capture.c$' Makefile &&
+       grep -q '^tests/capture_priv_hooks.o: tools/capture/capture_priv.c' Makefile &&
        ! grep -rq 'POS_CAPTURE_TEST_HOOKS' platforms ui/shell/CMakeLists.txt && echo 1 || echo 0)"
 # A window whose losses are not known never says every frame was seen; the
 # page names its capture filter every time it is painted.
@@ -383,8 +466,10 @@ check "one method opens PacketShark, the start request, and only capture.status 
 # ---- lifecycle ------------------------------------------------------------------
 check "the helper is spawned with PR_SET_PDEATHSIG and a parent check" \
     "$(grep -q 'PR_SET_PDEATHSIG' $A/psk_session.c && grep -q 'getppid() != parent' $A/psk_session.c && echo 1 || echo 0)"
-check "the helper drops its capabilities and sets no_new_privs" \
-    "$(grep -q 'PR_SET_NO_NEW_PRIVS' $H && grep -q 'SYS_capset' $H && grep -q 'PR_CAPBSET_DROP' $H && echo 1 || echo 0)"
+check "the helper leaves root for its own identity, drops its capabilities and sets no_new_privs (F1 hardening)" \
+    "$(P=tools/capture/capture_priv.c; grep -q 'PR_SET_NO_NEW_PRIVS' $P && grep -q 'SYS_capset' $P && grep -q 'PR_CAPBSET_DROP' $P &&
+       grep -q 'setresuid(id, id, id)' $P && grep -q 'define POS_CAPTURE_ID 65532' tools/capture/capture_priv.h &&
+       grep -q 'capture_drop(&p)' $H && echo 1 || echo 0)"
 check "the helper runs at nice 5 (DESIGN_DECISIONS D5)" "$(grep -q 'define HELPER_NICE 5' $H && echo 1 || echo 0)"
 if [ -f ui/shell/shell.c ] && grep -q app_packetshark ui/shell/shell.c; then
     check "the screen stays on while PacketShark is in front (awake_apps)" \
