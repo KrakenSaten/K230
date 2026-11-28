@@ -142,6 +142,7 @@ enum ppc_in_reason {
 #define PPC_IN_ALPHA_E6 10000u   /* one-sided test level, x 1e6 (0.01) */
 #define PPC_IN_SLOWER_PCT 150u   /* a slower median is a change only from 1.5 times ... */
 #define PPC_IN_SLOWER_US 20000u  /* ... and 20 ms more */
+#define PPC_IN_RISE_PCT 150u     /* a higher rate is a worsening only from 1.5 times the base's (G0.md §8.4) */
 /* What "no change" must rule out (ASSUMED design values, N1.1.md): */
 #define PPC_IN_MATERIAL_SHARE_PCT 50u /* the answered share halving */
 #define PPC_IN_MATERIAL_FAIL_PCT 25u  /* the failure share 25 points higher */

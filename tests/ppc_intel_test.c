@@ -690,7 +690,13 @@ static void scene_checks(const struct iplay *p, const char *name)
               is(p, 0, PPC_INM_DNS_ANSWERED, PPC_INV_CANT_TELL, PPC_INR_ONE_WAY) &&
                   is(p, 1, PPC_INM_DNS_ANSWERED, PPC_INV_CANT_TELL, PPC_INR_ONE_WAY) &&
                   is(p, 0, PPC_INM_DNS_TIME, PPC_INV_CANT_TELL, PPC_INR_ONE_WAY));
-        CHECK("the broadcast it still sees is judged", is(p, 0, PPC_INM_ARP_REQUEST, PPC_INV_NO_CHANGE, 0));
+        /* The broadcasts it still sees are never a claim: judged no change,
+         * or one-way where its inbound gap covers most of the window (the
+         * dense inbound of the base makes the window's quiet implausible,
+         * and broadcasts may be missing too: G0.md §8). */
+        CHECK("the broadcast it still sees makes no claim: no change, or one-way over the gap",
+              is(p, 0, PPC_INM_ARP_REQUEST, PPC_INV_NO_CHANGE, 0) ||
+                  is(p, 0, PPC_INM_ARP_REQUEST, PPC_INV_CANT_TELL, PPC_INR_ONE_WAY));
     } else if (!strcmp(name, "hold-recovery")) {
         CHECK("before the mark: fewer answered, on good evidence",
               is(p, 0, PPC_INM_DNS_ANSWERED, PPC_INV_WORSE, 0) &&

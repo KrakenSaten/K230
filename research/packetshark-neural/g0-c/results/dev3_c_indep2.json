@@ -2,112 +2,112 @@
  "which": "indep2",
  "windows": 24000,
  "verdict_agreement": {
-  "dns.time": 0.81433,
-  "dns.answered": 0.73383,
-  "dns.failed": 0.77321,
-  "dhcp.discover": 0.71546,
-  "arp.request": 0.61129
+  "dns.time": 0.77692,
+  "dns.answered": 0.68371,
+  "dns.failed": 0.72971,
+  "dhcp.discover": 0.84908,
+  "arp.request": 0.68125
  },
  "top_differences": [
   [
    "dns.answered cant-tell/one-way -> no-change/-",
-   5562
+   6628
   ],
   [
    "dns.failed cant-tell/one-way -> no-change/-",
-   4705
-  ],
-  [
-   "dhcp.discover no-change/- -> cant-tell/weak",
-   4375
-  ],
-  [
-   "arp.request no-change/- -> cant-tell/weak",
-   3440
+   5622
   ],
   [
    "dns.time cant-tell/one-way -> no-change/-",
-   3300
+   3990
+  ],
+  [
+   "arp.request no-change/- -> cant-tell/weak",
+   1761
   ],
   [
    "arp.request better/- -> no-change/-",
-   1354
-  ],
-  [
-   "arp.request worse/- -> cant-tell/weak",
-   1292
+   1160
   ],
   [
    "dhcp.discover no-change/- -> cant-tell/one-way",
-   1126
+   1117
   ],
   [
    "dhcp.discover cant-tell/weak -> no-change/-",
-   849
+   1109
   ],
   [
-   "arp.request worse/- -> no-change/-",
-   686
-  ],
-  [
-   "dns.time cant-tell/one-way -> worse/-",
-   635
-  ],
-  [
-   "dns.answered cant-tell/one-way -> worse/-",
-   600
+   "dhcp.discover no-change/- -> cant-tell/weak",
+   943
   ],
   [
    "arp.request worse/- -> cant-tell/loss-explains",
-   581
+   878
+  ],
+  [
+   "arp.request worse/- -> cant-tell/weak",
+   788
+  ],
+  [
+   "dns.time cant-tell/one-way -> worse/-",
+   763
+  ],
+  [
+   "dns.answered cant-tell/one-way -> worse/-",
+   728
+  ],
+  [
+   "arp.request worse/- -> no-change/-",
+   699
   ],
   [
    "dns.failed cant-tell/one-way -> worse/-",
-   546
+   668
   ],
   [
    "arp.request better/- -> cant-tell/one-way",
-   542
-  ],
-  [
-   "arp.request worse/- -> cant-tell/one-way",
-   496
+   537
   ],
   [
    "dns.time cant-tell/one-way -> small/-",
-   436
+   512
   ],
   [
-   "arp.request no-change/- -> cant-tell/one-way",
-   409
+   "arp.request worse/- -> cant-tell/one-way",
+   495
   ],
   [
    "arp.request better/- -> cant-tell/loss-explains",
-   277
+   466
   ],
   [
-   "dhcp.discover worse/- -> cant-tell/weak",
-   200
+   "arp.request no-change/- -> cant-tell/one-way",
+   402
   ],
   [
-   "arp.request better/- -> cant-tell/weak",
-   136
+   "arp.request worse/- -> small/-",
+   240
   ],
   [
    "dns.answered cant-tell/one-way -> better/-",
-   122
+   136
   ],
   [
    "dns.failed no-change/- -> cant-tell/weak",
-   114
+   115
+  ],
+  [
+   "dhcp.discover worse/- -> small/-",
+   115
   ],
   [
    "dhcp.discover worse/- -> cant-tell/one-way",
-   112
+   110
   ],
   [
-   "dhcp.discover better/- -> no-change/-",
-   70
+   "arp.request cant-tell/weak -> no-change/-",
+   104
   ]
  ],
  "g0_mirror": {
@@ -215,17 +215,17 @@
  "g0_c": {
   "false_claims": {
    "clean": {
-    "k": 1,
+    "k": 2,
     "n": 4213,
-    "rate": 0.00024,
-    "upper95": 0.00106,
+    "rate": 0.00047,
+    "upper95": 0.00143,
     "pass_": true
    },
    "loss-uniform": {
-    "k": 2,
+    "k": 1,
     "n": 1539,
-    "rate": 0.0013,
-    "upper95": 0.00392,
+    "rate": 0.00065,
+    "upper95": 0.00291,
     "pass_": true
    },
    "loss-burst": {
@@ -257,60 +257,60 @@
     "pass_": true
    }
   },
-  "pass": false,
+  "pass": true,
   "recall_material_under_loss": {
-   "k": 1325,
+   "k": 1379,
    "n": 2573,
-   "rate": 0.515,
-   "lower95": 0.4987,
-   "pass_": false
+   "rate": 0.536,
+   "lower95": 0.5197,
+   "pass_": true
   },
   "false_reassurance_material": {
-   "k": 23,
+   "k": 25,
    "n": 10744,
-   "rate": 0.0021
+   "rate": 0.0023
   },
   "abstention_material": {
-   "k": 5628,
+   "k": 5134,
    "n": 10744,
-   "rate": 0.5238
+   "rate": 0.4778
   },
   "per_fault": {
    "dns_down": {
     "n": 2191,
-    "recall": 0.261,
-    "abstained": 0.737,
+    "recall": 0.305,
+    "abstained": 0.692,
     "no_change": 0.003
    },
    "dns_slow": {
     "n": 2211,
-    "recall": 0.31,
-    "abstained": 0.658,
+    "recall": 0.361,
+    "abstained": 0.602,
     "no_change": 0.002
    },
    "servfail": {
     "n": 2159,
-    "recall": 0.287,
-    "abstained": 0.709,
-    "no_change": 0.004
+    "recall": 0.339,
+    "abstained": 0.656,
+    "no_change": 0.005
    },
    "arp_storm": {
     "n": 2144,
-    "recall": 0.728,
-    "abstained": 0.271,
+    "recall": 0.726,
+    "abstained": 0.234,
     "no_change": 0.001
    },
    "dhcp_trouble": {
     "n": 2039,
-    "recall": 0.779,
-    "abstained": 0.22,
+    "recall": 0.781,
+    "abstained": 0.18,
     "no_change": 0.001
    },
    "subtle_latency": {
     "n": 1237,
-    "recall": 0.059,
-    "abstained": 0.724,
-    "no_change": 0.048
+    "recall": 0.065,
+    "abstained": 0.689,
+    "no_change": 0.057
    }
   }
  }
