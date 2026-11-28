@@ -707,6 +707,10 @@ static void net_poll(struct psk_app *a)
 
 static void ev_ask(struct psk_app *a)
 {
+    /* The mark's comparisons (N1.2) ride along: after against before, and
+     * before against its reference. */
+    psk_session_intel(a->session, a->model, a->ev_id, 1);
+    psk_session_intel(a->session, a->model, a->ev_id, 0);
     if (psk_session_evid(a->session, a->model, a->ev_id) == 0) {
         a->ev_due = false;
         a->ev_asked = true;
@@ -912,6 +916,10 @@ static void react(struct psk_app *a, unsigned changed)
         } else {
             a->ev_due = true; /* which mark of how many: the page's head follows */
         }
+    }
+    if (changed & PSK_CHANGED_INTEL) {
+        psk_evp_paint(a);
+        psk_live_paint(a, PSK_CHANGED_STATE);
     }
     if (changed & PSK_CHANGED_EVID) {
         a->ev_asked = false;
@@ -2175,6 +2183,28 @@ lv_obj_t *psk_app_part(void *priv, const char *name)
     }
     if (strcmp(name, "evlimits") == 0) {
         return a->ev_limits;
+    }
+    /* N1.2: WHEN */
+    if (strcmp(name, "inpanel") == 0) {
+        return a->in_panel;
+    }
+    if (strcmp(name, "inhead") == 0) {
+        return a->in_head;
+    }
+    if (strcmp(name, "inseeing") == 0) {
+        return a->in_seeing;
+    }
+    if (strcmp(name, "inpaira") == 0) {
+        return a->in_pair_a;
+    }
+    if (strncmp(name, "infig", 5) == 0 && (i = name[5] - '0') >= 0 && i < (int)PPC_IN_METRICS) {
+        return a->in_fig[i];
+    }
+    if (strncmp(name, "inevd", 5) == 0 && (i = name[5] - '0') >= 0 && i < (int)PPC_IN_METRICS) {
+        return a->in_evd[i];
+    }
+    if (strncmp(name, "inrefs", 6) == 0 && (i = name[6] - '0') >= 0 && i < (int)PPC_IN_METRICS) {
+        return a->in_refs[i];
     }
     if (strcmp(name, "dsheet") == 0) {
         return a->dsheet;

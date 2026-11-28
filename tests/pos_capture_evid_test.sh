@@ -379,5 +379,39 @@ check "the helper's log names no address or name the fixtures carry, and says a 
     "$([ -s "$T/log/pos-capture.log" ] && ! grep -qE '192\.0\.2\.|02:00:5e|example\.net' "$T/log/pos-capture.log" &&
        grep -q 'capture: mark 1 at ' "$T/log/pos-capture.log" && echo 1 || echo 0)"
 
+# ---- a mark's comparisons (N1.2, protocol 7) ------------------------------------------------
+# The engine is fed beside the evidence: `intel` answers for any held mark,
+# whole and bounded, before its window is over (not final) and after STOP
+# (final); a mark not held, or a pair other than 0 or 1, is refused.
+{
+    printf 'start synth0 headers 0 all 0
+'; sleep 2.0
+    printf 'mark
+'; sleep 1.0
+    printf 'intel 11 0 1
+'; sleep 0.3
+    printf 'intel 12 7 1
+intel 13 1 2
+'; sleep 0.3
+    printf 'stop
+'; sleep 0.3
+    printf 'intel 14 1 1
+intel 15 1 0
+quit
+'
+} | "$HELPER" session --source synth:2000:1 > "$T/intel" 2>&1
+in_of() { awk -F'	' -v r="$2" '$1 == "in.begin" { on = ($2 == r) } on { print } $1 == "in.end" { on = 0 }' "$1"; }
+in_of "$T/intel" 11 > "$T/i11"; in_of "$T/intel" 14 > "$T/i14"; in_of "$T/intel" 15 > "$T/i15"
+check "intel: in.begin, two in.vis, five in.cmp (one a metric) and in.end, for the newest mark"     "$([ "$(grep -c '^in\.vis' "$T/i11")" = "2" ] && [ "$(grep -c '^in\.cmp' "$T/i11")" = "5" ] &&
+       [ "$(cut -f2 "$T/i11" | sed -n '4,8p' | tr '
+' ' ')" = "0 1 2 3 4 " ] && grep -qP '^in\.end	11$' "$T/i11" &&
+       grep -qP '^in\.begin	11	1	1	' "$T/i11" && echo 1 || echo 0)"
+check "intel: before the window is over the answer is not final; after STOP it is"     "$(grep -qP '^in\.begin	11	1	1	\d+	\d+	0$' "$T/i11" && grep -qP '^in\.begin	14	1	1	\d+	\d+	1$' "$T/i14" &&
+       echo 1 || echo 0)"
+check "intel: the pair before the mark (0) is answered too"     "$(grep -qP '^in\.begin	15	1	0	' "$T/i15" && [ "$(grep -c '^in\.cmp' "$T/i15")" = "5" ] && echo 1 || echo 0)"
+check "intel: a mark not held and a pair other than 0 or 1 are refused"     "$(grep -qP '^error	nomark	' "$T/intel" && grep -qP '^error	badarg	' "$T/intel" && echo 1 || echo 0)"
+check "intel: every answer line stays under the line limit, a whole answer under 4 KiB"     "$(awk 'length($0) >= 512 { bad = 1 } END { exit bad }' "$T/intel" && [ "$(wc -c < "$T/i14")" -lt 4096 ] && echo 1 || echo 0)"
+check "intel: the log names no comparison, address or name"     "$(! grep -qE 'in\.cmp|intel|192\.0\.2\.' "$T/log/pos-capture.log" && echo 1 || echo 0)"
+
 echo "pos_capture_evid_test: $failed failure(s)"
 exit $((failed > 0))

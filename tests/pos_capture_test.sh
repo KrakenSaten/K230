@@ -82,7 +82,7 @@ check "the backend is named" "$("$HELPER" backend | grep -qxE 'pcap|none' && ech
 } | "$HELPER" session --source synth:500:1 > "$T/s1" 2>&1
 rc=$?
 check "the session leaves with 0" "$([ "$rc" = "0" ] && echo 1 || echo 0)"
-check "hello first" "$(head -1 "$T/s1" | grep -qP '^hello\t6\t' && echo 1 || echo 0)"
+check "hello first" "$(head -1 "$T/s1" | grep -qP '^hello\t7\t' && echo 1 || echo 0)"
 check "capturing, hold, capturing, stopped by the user" \
     "$(grep -P '^state\t' "$T/s1" | cut -f2,3 | tr '\t\n' ' ' | grep -q 'idle none capturing none hold none capturing none stopped user' && echo 1 || echo 0)"
 check "a window of 5 rows" "$([ "$(grep -cP '^row\t' "$T/s1")" = "5" ] && grep -qP '^rows.end\t1$' "$T/s1" && echo 1 || echo 0)"

@@ -121,6 +121,9 @@ int psk_session_mark(struct psk_session *s);
 /* Ask for a mark's evidence as it stands; id 0 is the newest mark. The
  * answer comes whole, as the network intelligence's lists do. */
 int psk_session_evid(struct psk_session *s, struct psk_model *m, uint32_t id);
+/* A mark's comparisons (N1.2, protocol 7): id 0 the newest; pair 1 after
+ * the mark against before it, 0 before it against its reference. */
+int psk_session_intel(struct psk_session *s, struct psk_model *m, uint32_t id, unsigned pair);
 /* Write the stopped capture to a file in the captures folder (M8). */
 int psk_session_save(struct psk_session *s);
 int psk_session_pin(struct psk_session *s, uint32_t seq, bool on);

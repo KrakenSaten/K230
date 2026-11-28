@@ -416,7 +416,107 @@ static void test_list_and_inspector(void)
     check("packet text keeps no mark", strcmp(marks, "a..b") == 0);
 }
 
-/* Marks and their evidence (N1.0, protocol 6). */
+/* A mark's comparisons (N1.2, protocol 7). */
+static void test_intel(void)
+{
+    char line[PPC_LINE_MAX];
+    struct ppc_cmd c;
+    struct ppc_evt e;
+    struct ppc_evt_in_head h;
+    struct ppc_evt_in_vis v;
+    struct ppc_evt_in_cmp m;
+    char total[4096];
+    size_t len = 0;
+    int k;
+    unsigned i;
+
+    check("intel: a request, a mark (0 the newest) and a pair 0|1",
+          ppc_cmd_format_intel(line, sizeof(line), 5, 2, 1) > 0 && ppc_cmd_parse(line, &c) == PPC_CMD_INTEL &&
+              c.req == 5 && c.mark_id == 2 && c.pair == 1 && ppc_cmd_parse("intel 6 0 0", &c) == PPC_CMD_INTEL &&
+              c.mark_id == 0 && c.pair == 0);
+    check("intel: a pair other than 0 or 1, or a missing word, is refused",
+          ppc_cmd_parse("intel 6 0 2", &c) == PPC_CMD_BAD && ppc_cmd_parse("intel 6 0", &c) == PPC_CMD_BAD &&
+              ppc_cmd_format_intel(line, sizeof(line), 1, 1, 2) < 0);
+    memset(&h, 0, sizeof(h));
+    h.req = 5;
+    h.mark = 2;
+    h.pair = 1;
+    h.at_ms = 60000;
+    h.now_ms = 125000;
+    h.final = 1;
+    k = ppc_evt_format_in_begin(line, sizeof(line), &h);
+    memcpy(total + len, line, (size_t)k);
+    len += (size_t)k;
+    check("in.begin round trip",
+          k > 0 && ppc_evt_parse(line, &e) == PPC_EVT_IN_BEGIN && e.u.in_head.req == 5 && e.u.in_head.mark == 2 &&
+              e.u.in_head.pair == 1 && e.u.in_head.at_ms == 60000 && e.u.in_head.now_ms == 125000 &&
+              e.u.in_head.final == 1);
+    h.mark = 0;
+    check("in.begin: no mark 0 on the wire", ppc_evt_format_in_begin(line, sizeof(line), &h) < 0 &&
+                                                 ppc_evt_parse("in.begin\t5\t0\t1\t60000\t125000\t1", &e) != PPC_EVT_IN_BEGIN);
+    for (i = 0; i < 2; i++) {
+        memset(&v, 0, sizeof(v));
+        v.side = (uint8_t)i;
+        v.from_ms = i ? 60000 : 0;
+        v.to_ms = i ? 120000 : 60000;
+        v.watched_s = 60;
+        v.frames = 4321;
+        v.lost_lo = 10;
+        v.lost_hi = 56;
+        v.loss_known = 1;
+        v.own_in = 99;
+        v.own_out = 101;
+        k = ppc_evt_format_in_vis(line, sizeof(line), &v);
+        memcpy(total + len, line, (size_t)k);
+        len += (size_t)k;
+    }
+    check("in.vis round trip", k > 0 && ppc_evt_parse(line, &e) == PPC_EVT_IN_VIS && e.u.in_vis.side == 1 &&
+                                   e.u.in_vis.to_ms == 120000 && e.u.in_vis.lost_hi == 56 && e.u.in_vis.loss_known == 1 &&
+                                   e.u.in_vis.own_out == 101);
+    v.from_ms = 2;
+    v.to_ms = 1;
+    check("in.vis: a window that ends before it begins is refused", ppc_evt_format_in_vis(line, sizeof(line), &v) < 0);
+    for (i = 0; i < PPC_IN_METRICS; i++) {
+        memset(&m, 0, sizeof(m));
+        m.metric = (uint8_t)i;
+        m.verdict = 4;
+        m.quality = 2;
+        m.reason = 11;
+        m.notes = 0x3f;
+        m.n[0] = 4294967295u;
+        m.n[1] = 4294967295u;
+        m.k[0] = m.k[1] = m.stat[0] = m.stat[1] = m.und[0] = m.und[1] = 4294967295u;
+        m.p_e6 = 1000000;
+        m.ref[0] = 4294967295u;
+        m.alive[0] = 2;
+        m.ref[2] = 7;
+        m.alive[2] = 0;
+        k = ppc_evt_format_in_cmp(line, sizeof(line), &m);
+        if (k > 0) {
+            memcpy(total + len, line, (size_t)k);
+            len += (size_t)k;
+        }
+    }
+    check("in.cmp round trip at the widest figures, references with their state or a dash",
+          k > 0 && ppc_evt_parse(line, &e) == PPC_EVT_IN_CMP && e.u.in_cmp.metric == 4 && e.u.in_cmp.reason == 11 &&
+              e.u.in_cmp.n[1] == 4294967295u && e.u.in_cmp.ref[0] == 4294967295u && e.u.in_cmp.alive[0] == 2 &&
+              e.u.in_cmp.ref[1] == 0 && e.u.in_cmp.ref[2] == 7 && e.u.in_cmp.alive[2] == 0);
+    m.metric = 5;
+    check("in.cmp: a metric, verdict or reason past the engine's is refused",
+          ppc_evt_format_in_cmp(line, sizeof(line), &m) < 0 &&
+              ppc_evt_parse("in.cmp\t0\t6\t0\t0\t0\t1\t1\t1\t1\t1\t1\t0\t0\t1\t-\t-\t-\t-", &e) != PPC_EVT_IN_CMP &&
+              ppc_evt_parse("in.cmp\t0\t1\t0\t12\t0\t1\t1\t1\t1\t1\t1\t0\t0\t1\t-\t-\t-\t-", &e) != PPC_EVT_IN_CMP &&
+              ppc_evt_parse("in.cmp\t0\t1\t0\t0\t0\t1\t1\t1\t1\t1\t1\t0\t0\t1\t5:3\t-\t-\t-", &e) != PPC_EVT_IN_CMP &&
+              ppc_evt_parse("in.cmp\t0\t1\t0\t0\t0\t1\t1\t1\t1\t1\t1\t0\t0\t1000001\t-\t-\t-\t-", &e) != PPC_EVT_IN_CMP);
+    k = ppc_evt_format_in_end(line, sizeof(line), 5);
+    memcpy(total + len, line, (size_t)k);
+    len += (size_t)k;
+    check("in.end round trip", k > 0 && ppc_evt_parse(line, &e) == PPC_EVT_IN_END && e.u.ev_req == 5);
+    printf("     a whole answer at its widest: %zu bytes\n", len);
+    check("a whole answer, every figure at its widest, stays under 4 KiB", len < 4096);
+}
+
+/* Marks and their evidence (N1.0, protocol 6; unchanged in protocol 7). */
 static void test_evidence(void)
 {
     char line[PPC_LINE_MAX];
@@ -429,7 +529,7 @@ static void test_evidence(void)
     unsigned i;
     int ok;
 
-    check("protocol 6", PPC_PROTO_VERSION == 6);
+    check("protocol 7 (N1.2 adds intel)", PPC_PROTO_VERSION == 7);
     check("mark: the command takes nothing", ppc_cmd_format_mark(line, sizeof(line)) > 0 &&
                                                  ppc_cmd_parse(line, &c) == PPC_CMD_MARK &&
                                                  ppc_cmd_parse("mark 1", &c) == PPC_CMD_BAD);
@@ -656,6 +756,7 @@ int main(void)
     test_presets();
     test_list_and_inspector();
     test_evidence();
+    test_intel();
     printf("ppc_proto_test: %d checks, %d failed\n", checks, failed);
     return failed ? 1 : 0;
 }

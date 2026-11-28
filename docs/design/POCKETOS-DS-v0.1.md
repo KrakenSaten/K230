@@ -5510,6 +5510,73 @@ rendering on Unit A is added here when it is made.
 | Filter sheet | (not drawn) | a sheet over the app as the confirmations: PROTOCOL as nine 56 px choices, Host, Port (cleared, not typed), Pinned only, CANCEL, CLEAR ALL, SHOW | only existing parts |
 | Figures at Medium and Large (DS §46) | Small only: four session figures in a line, each class's rate beside its word | where the widest expected figure (`8 888 888`, `88.8 GB`, `88 888/s` beside `100.0%`) does not fit, SESSION and LAST SESSION go two by two and every class's rate takes a line of its own under its word; Small keeps the mockup's shape. Portrait at Medium and Large; landscape's wider panels keep the Small shape | seen on Unit B at Large in portrait: dots-mode labels with an automatic height wrap, so `2 961/s` read as `2` over `961/s` and `492 000` as `492` over `000` (§46.5: wrap or grow the row, never break a figure). Decided from the widest expected figure, so the shape does not change in the middle of a capture; a figure wider still gets the same room once seen |
 
+### 59.12 INSIGHT and WHEN (N1.2) [PROPOSED]
+
+**Proposed 2026-11-28** on pull request #196 (draft). The design basis is
+the seven INSIGHT and WHEN mockups of N1.1
+(`docs/design/packetshark/insight/`, [N1.1.md](../apps/packetshark/neural/N1.1.md) §6),
+which the owner approved as drawn on 2026-11-27 (NEURAL decision D8), with the
+comparison vocabulary WORSE, BETTER, NO CHANGE, SMALL CHANGE and CAN'T TELL.
+N1.2 builds the first, **observation-only** slice of that design: what the
+capture saw in the minute before a mark and the minute after, how well it saw
+it, and why a comparison cannot be made when it cannot. Automatic problem
+verdicts are off (`PSK_IN_VERDICTS 0` in `apps/packetshark/psk_in.h`): no
+SLOWER, FEWER, MORE, NO CHANGE or SMALL CHANGE is shown, although the helper
+computes them. The verdict words return only with a later decision of the
+owner, on field evidence (NEURAL gates G3 and G6). Only existing parts, roles
+and tokens are used.
+
+**Where.** WHEN is a panel at the top of a mark's evidence page (N1.0,
+59.11), above the windows and the observations; in the wide shape it heads
+the left column. The page is reached as before, from the count of marks
+beside MARK (`1 MARK ›`). A page that shows a mark's comparisons is the
+mark's own page, so a comparison always stands next to the observations and
+packets it rests on.
+
+**What the panel says**, top to bottom, every line in words:
+
+- its caption, `WHEN · BEFORE AND AFTER THE MARK`;
+- a summary in the caption role: `5 OBSERVED · 2 WITH LIMITS`, or `WINDOW
+  STILL FILLING · …` while the minute after the mark is still open, and then
+  `OBSERVATIONS ONLY, NO VERDICTS YET`;
+- SEEING, in the caption role, status_warn when anything limited the view:
+  each window's watched seconds, seconds on HOLD, seconds counted only, seconds
+  the capture no longer holds, frames lost (exact or `UP TO n`), `LOSSES NOT
+  KNOWN`, and `NOTHING ADDRESSED TO THIS DEVICE SEEN …` when the device sent
+  and nothing came back (one-sided visibility);
+- five comparisons, each a group of up to four lines: the metric's name in the
+  value role (DNS ANSWER TIME, DNS ANSWERS SEEN, DNS FAILURES, DHCP
+  DISCOVERS, ARP REQUESTS); the figures before and after in the text role
+  (`MEDIAN 31 MS → 120 MS · 60 → 25 ANSWERS`, `60 OF 60 → 40 OF 50 QUESTIONS`,
+  `0 OF 66 → 24 OF 50 ANSWERS FAILED`, `158 → 790 A MINUTE · 158 → 790 SEEN`);
+  the evidence line in the caption role (`WATCHED WHOLE`; `WATCHED WITH
+  LIMITS` and which; `NOT ENOUGH EVIDENCE` and the engine's reason in words,
+  then what was lost or left out), status_warn unless both windows were
+  watched whole. A DNS answer is never called missing: where fewer answers
+  were seen than before, the line adds `AN ANSWER BY ANOTHER PATH IS NOT SEEN
+  HERE` (the N1.2 bench found answers returning by another path read as fewer
+  answers); the packets the comparison rests on with their
+  state (`PACKETS #812 WHOLE · #830 GONE (EXPIRED) · #901 SUMMARY ONLY`),
+  status_warn when one has expired;
+- pair A on one line: `BEFORE THE MARK, AGAINST THE TWO MINUTES BEFORE IT ·`
+  and its summary.
+
+Insufficient evidence, the limits of visibility and expired references are
+said where the figures are, in the warning colour, never only in a summary.
+
+### 59.13 INSIGHT and WHEN: implementation deviations (N1.2)
+
+| Where | Mockup (D8) | Built (N1.2) | Reason |
+| --- | --- | --- | --- |
+| Verdicts | a card per change with a verdict word in its colour; CAN'T TELL cards | no verdict words; every comparison is listed with its figures and its evidence line; CAN'T TELL appears as `NOT ENOUGH EVIDENCE` and the reason | the N1.2 brief: observation-only, automatic problem verdicts disabled. G0 passed on synthetic data only, and the real-traffic bench (N1.2 record) is not field validation |
+| LIVE entry | an INSIGHT row under NETWORK: `MARK 1 · 1 CHANGE AFTER IT`, `SEEING …` | no new row; the count of marks (`1 MARK ›`) leads to the mark's page, where WHEN is | without verdicts the row has no change to name; a suffix on the count (`1 MARK · WHEN`) was cut at Medium and Large in the tall shape and was removed |
+| INSIGHT face and lens chips | LIVE's third face; chips WHEN, WHO (LATER), WHY (LATER) | WHEN only, as a panel of the mark's page; no chips | WHO and WHY are deferred by the brief; a chip row of one lens says nothing |
+| SEEING strip | a drawn strip: two minutes of reference, the minute before, the minute after, loss ticks and unread spans | the same facts in words on one wrapping line, each window by name | no strip or tick part in pocketui; words carry the numbers the strip only suggests, and they are read at Large |
+| Unchanged comparisons | folded into one line | every comparison has its own group | without verdicts nothing is known to be unchanged, so nothing can be folded |
+| Pair A | one line | one line, its summary only | as the mockup |
+| Wide shape | the list on the left, the selected comparison's sheet on the right | the panel heads the left column, the observations stay on the right | the evidence page's two columns are N1.0's (59.11); a comparison sheet needs a verdict to open on |
+| A comparison opened (mockup i6) | a sheet with the verdict, what it rests on, SEEING and the packet references | the packet references are on the panel itself with their state; no sheet | the sheet's head is the verdict; the references, the reason and the limits are all on the panel |
+
 ## 60. Amendment AQ — The Games Hub [ACCEPTED]
 
 **Accepted by the product owner, 2026-11-17,** after reviewing the visual

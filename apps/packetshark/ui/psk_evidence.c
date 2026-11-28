@@ -23,6 +23,7 @@
  */
 #include "psk_app.h"
 #include "psk_ev.h"
+#include "psk_in.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -243,6 +244,32 @@ void psk_evp_build(struct psk_app *a, lv_obj_t *page)
     a->ev_l = column(a->ev_cols, PSK_PANEL_GAP);
     a->ev_r = column(a->ev_cols, PSK_PANEL_GAP);
 
+    /* WHEN (N1.2, DS §59.12): the minute before the mark against the minute
+     * after, five comparisons, observed. No verdict while automatic
+     * verdicts are off: what was seen, how well, and why it cannot be told
+     * when it cannot; expired packets say so. */
+    p = psk_panel(a->ev_l, "WHEN" DOT "BEFORE AND AFTER THE MARK");
+    a->in_panel = p;
+    lv_obj_set_style_pad_top(p, 18, 0);
+    lv_obj_set_style_pad_bottom(p, 14, 0);
+    lv_obj_set_style_pad_row(p, 4, 0);
+    a->in_head = wrapping(p, POS_STYLE_CAPTION);
+    a->in_seeing = wrapping(p, POS_STYLE_CAPTION);
+    pos_style_add(a->in_seeing, POS_STYLE_STATUS_WARN_TEXT, LV_STATE_USER_1);
+    for (i = 0; i < PPC_IN_METRICS; i++) {
+        lv_obj_t *c = column(p, 2);
+
+        lv_obj_set_style_pad_top(c, 8, 0);
+        a->in_title[i] = wrapping(c, POS_STYLE_VALUE);
+        a->in_fig[i] = wrapping(c, POS_STYLE_TEXT_PRIMARY);
+        a->in_evd[i] = wrapping(c, POS_STYLE_CAPTION);
+        pos_style_add(a->in_evd[i], POS_STYLE_STATUS_WARN_TEXT, LV_STATE_USER_1);
+        a->in_refs[i] = wrapping(c, POS_STYLE_CAPTION);
+        pos_style_add(a->in_refs[i], POS_STYLE_STATUS_WARN_TEXT, LV_STATE_USER_1);
+    }
+    a->in_pair_a = wrapping(p, POS_STYLE_CAPTION);
+    lv_obj_set_style_pad_top(a->in_pair_a, 8, 0);
+
     /* The two windows: how long each is, what ended it or keeps it open,
      * and how much of it the capture saw. */
     p = psk_panel(a->ev_l, "WHAT WAS WATCHED");
@@ -425,6 +452,69 @@ static void paint_row(struct psk_app *a, unsigned k, const struct psk_ev_row *r)
     }
 }
 
+/* A label's warning look, as a state: the style is added once, at build. */
+static void warn(lv_obj_t *lb, bool on)
+{
+    if (on != lv_obj_has_state(lb, LV_STATE_USER_1)) {
+        if (on) {
+            lv_obj_add_state(lb, LV_STATE_USER_1);
+        } else {
+            lv_obj_remove_state(lb, LV_STATE_USER_1);
+        }
+    }
+}
+
+/* WHEN: the mark's comparisons, when they are this mark's and whole. */
+static void paint_in(struct psk_app *a, uint32_t mark)
+{
+    const struct psk_model *m = a->model;
+    const struct psk_insight *in = &m->insight[1];
+    bool have = m->have_in[1] && in->head.mark == mark;
+    char b[512];
+    bool lim;
+    unsigned i;
+
+    if (!have) {
+        psk_text(a->in_head, psk_in_waiting());
+        psk_set_hidden(a->in_seeing, true);
+        for (i = 0; i < PPC_IN_METRICS; i++) {
+            psk_set_hidden(lv_obj_get_parent(a->in_title[i]), true);
+        }
+        psk_set_hidden(a->in_pair_a, true);
+        return;
+    }
+    psk_text(a->in_head, psk_in_head(in, b, sizeof(b)));
+    psk_text(a->in_seeing, psk_in_seeing(in, b, sizeof(b), &lim));
+    warn(a->in_seeing, lim);
+    psk_set_hidden(a->in_seeing, b[0] == '\0');
+    for (i = 0; i < PPC_IN_METRICS; i++) {
+        const struct ppc_evt_in_cmp *c = &in->cmp[i];
+        bool expired;
+        const char *v = psk_in_verdict(c, in->head.final != 0);
+
+        psk_set_hidden(lv_obj_get_parent(a->in_title[i]), false);
+        if (v[0]) {
+            snprintf(b, sizeof(b), "%s" DOT "%s", psk_in_metric(i), v);
+            psk_text(a->in_title[i], b);
+        } else {
+            psk_text(a->in_title[i], psk_in_metric(i));
+        }
+        psk_text(a->in_fig[i], psk_in_figures(c, b, sizeof(b)));
+        psk_text(a->in_evd[i], psk_in_evidence(c, b, sizeof(b), &lim));
+        warn(a->in_evd[i], lim);
+        psk_in_refs(c, b, sizeof(b), &expired);
+        psk_text(a->in_refs[i], b);
+        warn(a->in_refs[i], expired);
+        psk_set_hidden(a->in_refs[i], b[0] == '\0');
+    }
+    if (m->have_in[0] && m->insight[0].head.mark == mark) {
+        psk_text(a->in_pair_a, psk_in_pair_a(&m->insight[0], b, sizeof(b)));
+        psk_set_hidden(a->in_pair_a, false);
+    } else {
+        psk_set_hidden(a->in_pair_a, true);
+    }
+}
+
 void psk_evp_paint(struct psk_app *a)
 {
     const struct psk_model *m = a->model;
@@ -457,6 +547,7 @@ void psk_evp_paint(struct psk_app *a)
     }
     psk_text(a->ev_title, psk_ev_title(ev, b, sizeof(b)));
     psk_text(a->ev_when, psk_ev_when(ev, b, sizeof(b)));
+    paint_in(a, ev->head.id);
     psk_set_hidden(a->ev_when, false);
     {
         bool many = ev->head.last > ev->head.first;

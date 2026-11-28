@@ -45,6 +45,7 @@
 #include "pocketpcap/ppc_decode.h"
 #include "pocketpcap/ppc_dissect.h"
 #include "pocketpcap/ppc_evid.h"
+#include "pocketpcap/ppc_intel.h"
 #include "pocketpcap/ppc_format.h"
 #include "pocketpcap/ppc_pcapfile.h"
 #include "pocketpcap/ppc_proto.h"
@@ -160,6 +161,8 @@ struct helper {
      * runs on, and what tells this device's own frames from the rest */
     struct ppc_evid ev;
     int ev_ready;
+    struct ppc_intel intl;    /* N1.2: the comparisons (protocol 7), fed beside the evidence */
+    int in_ready;
     int ev_lead_set;
     uint32_t ev_lead_ms;      /* the session time of the first packet */
     uint32_t ev_last_ms;      /* the session time last told to the history */
@@ -620,6 +623,9 @@ static uint32_t ev_tick(struct helper *h)
     if (h->ev_ready && (h->state == PPC_STATE_CAPTURING || h->state == PPC_STATE_HOLD)) {
         ppc_evid_tick(&h->ev, t, h->state == PPC_STATE_HOLD ? PPC_EVS_HELD : h->shed ? PPC_EVS_SHED : PPC_EVS_WATCHED);
     }
+    if (h->in_ready && (h->state == PPC_STATE_CAPTURING || h->state == PPC_STATE_HOLD)) {
+        ppc_intel_tick(&h->intl, t, h->state == PPC_STATE_HOLD ? PPC_EVS_HELD : h->shed ? PPC_EVS_SHED : PPC_EVS_WATCHED);
+    }
     return t;
 }
 
@@ -648,8 +654,15 @@ static int read_drops(struct helper *h)
         h->st.kdrop = kd;
         h->st.ifdrop = ifd;
     }
-    if (h->ev_ready && (h->state == PPC_STATE_CAPTURING || h->state == PPC_STATE_HOLD)) {
-        ppc_evid_counters(&h->ev, ev_tick(h), ok, h->st.kdrop + h->st.ifdrop);
+    if ((h->ev_ready || h->in_ready) && (h->state == PPC_STATE_CAPTURING || h->state == PPC_STATE_HOLD)) {
+        uint32_t t = ev_tick(h);
+
+        if (h->ev_ready) {
+            ppc_evid_counters(&h->ev, t, ok, h->st.kdrop + h->st.ifdrop);
+        }
+        if (h->in_ready) {
+            ppc_intel_counters(&h->intl, t, ok, h->st.kdrop + h->st.ifdrop);
+        }
     }
     return ok;
 }
@@ -663,6 +676,9 @@ static void on_said(void *ctx, const struct ppc_net_said *s)
 
     if (h->ev_ready && ppc_evid_from_net(s, h->ev_lead_ms, h->self_known ? h->self_mac : NULL, &o)) {
         ppc_evid_note(&h->ev, &o);
+        if (h->in_ready) {
+            ppc_intel_note(&h->intl, &o);
+        }
     }
 }
 
@@ -708,6 +724,9 @@ static void on_frame(void *ctx, const struct ppc_frame *f)
             h->self_known = 1;
         }
     }
+    if (h->in_ready) {
+        ppc_intel_frame(&h->intl, t_ms, f->pkttype, h->shed);
+    }
     if (h->shed) {
         /* Counted, not analysed: its second was not watched whole, however
          * short the burst that left it so (N1.0). */
@@ -730,6 +749,9 @@ static void on_frame(void *ctx, const struct ppc_frame *f)
             if (ppc_evid_from_dns(&r, ppc_sig_diag(r.signal), h->sig.dns_last_us, f->pkttype == PPC_PKT_HOST,
                                   h->ev_lead_ms, h->store.last_seq + 1u, &o)) {
                 ppc_evid_note(&h->ev, &o);
+                if (h->in_ready) {
+                    ppc_intel_note(&h->intl, &o);
+                }
             }
         }
     }
@@ -745,8 +767,15 @@ static void stop_capture(struct helper *h, enum ppc_reason why, const char *deta
     if (h->src_open) {
         read_drops(h); /* the last reading, or the last that could not be made */
         /* The history's windows close where the capture stops. */
-        if (h->ev_ready && (h->state == PPC_STATE_CAPTURING || h->state == PPC_STATE_HOLD)) {
-            ppc_evid_stop(&h->ev, ev_tick(h), wall_s_now());
+        if ((h->ev_ready || h->in_ready) && (h->state == PPC_STATE_CAPTURING || h->state == PPC_STATE_HOLD)) {
+            uint32_t t = ev_tick(h);
+
+            if (h->ev_ready) {
+                ppc_evid_stop(&h->ev, t, wall_s_now());
+            }
+            if (h->in_ready) {
+                ppc_intel_stop(&h->intl, t);
+            }
         }
         ppc_source_close(&h->src);
         h->src_open = 0;
@@ -849,6 +878,10 @@ static void start_undo(struct helper *h)
         ppc_evid_free(&h->ev);
         h->ev_ready = 0;
     }
+    if (h->in_ready) {
+        ppc_intel_free(&h->intl);
+        h->in_ready = 0;
+    }
     ppc_store_free(&h->store);
     h->store_ready = 0;
     release_lock(h);
@@ -923,6 +956,10 @@ static void cmd_start(struct helper *h, const struct ppc_cmd *c)
 #endif
     /* Marks and their evidence (N1.0), fed by the two above. */
     h->ev_ready = ppc_evid_init(&h->ev) == 0;
+    /* The comparisons (N1.2): one allocation, here, before the privilege
+     * drop and the system call filter; a capture without them still
+     * captures, and `intel` says so. */
+    h->in_ready = h->ev_ready && ppc_intel_init(&h->intl) == 0;
     if (h->ev_ready && h->net_ready) {
         ppc_net_listen(&h->net, on_said, h);
     }
@@ -958,6 +995,10 @@ static void cmd_start(struct helper *h, const struct ppc_cmd *c)
          * source applies, and the analyses that could not start. */
         ppc_evid_coverage(&h->ev, h->src.live ? c->cfilter : PPC_CFILTER_ALL,
                           ppc_evid_unanalyzed(h->sig_ready, h->net_ready));
+        if (h->in_ready) {
+            ppc_intel_coverage(&h->intl, h->src.live ? c->cfilter : PPC_CFILTER_ALL,
+                               ppc_evid_unanalyzed(h->sig_ready, h->net_ready));
+        }
     }
     snprintf(h->iface, sizeof(h->iface), "%s", c->iface);
     h->speed = h->src.live ? link_speed(c->iface) : 0;
@@ -2129,6 +2170,9 @@ static void cmd_mark(struct helper *h)
         say_error(h, "state", "nothing has been captured");
         return;
     }
+    if (h->in_ready) {
+        ppc_intel_mark(&h->intl, m->id, m->at_ms);
+    }
     ppc_evid_ids(&h->ev, &first, &last);
     memset(&e, 0, sizeof(e));
     e.id = m->id;
@@ -2272,6 +2316,113 @@ static void cmd_evid(struct helper *h, const struct ppc_cmd *c)
     out_flush(h);
 }
 
+/* A mark's comparisons (N1.2, protocol 7): in.begin, the two windows'
+ * visibility, the five comparisons as the engine made them (verdict,
+ * quality, reason, notes, counts, figures, packets with what the buffer
+ * still holds of them), in.end; queued whole, like `evid`. The helper sends
+ * the engine's words; what the screen shows of them is the shell's
+ * (observation-only first). Nothing here is logged. */
+static void cmd_intel(struct helper *h, const struct ppc_cmd *c)
+{
+    static char buf[4096];
+    char line[PPC_LINE_MAX];
+    const struct ppc_ev_mark *m;
+    struct ppc_evt_in_head hd;
+    struct ppc_in_cmp cmp;
+    size_t len = 0;
+    unsigned metric;
+    unsigned i;
+    int k;
+
+    if (!h->in_ready) {
+        say_error(h, "state", h->ev_ready ? "comparisons are not available" : "nothing has been captured");
+        return;
+    }
+    if (h->src_open && (h->state == PPC_STATE_CAPTURING || h->state == PPC_STATE_HOLD)) {
+        read_drops(h);
+    }
+    memset(&hd, 0, sizeof(hd));
+    hd.now_ms = ev_tick(h);
+    m = ppc_evid_get(&h->ev, c->mark_id);
+    if (!m) {
+        say_error(h, "nomark", "that mark is not held");
+        return;
+    }
+    hd.req = c->req;
+    hd.mark = m->id;
+    hd.pair = c->pair;
+    hd.at_ms = m->at_ms;
+    hd.final = (uint8_t)(h->intl.stopped != 0);
+    for (i = 0; i < PPC_IN_MARKS; i++) {
+        if (h->intl.marks[i].id == m->id && h->intl.marks[i].done[c->pair]) {
+            hd.final = 1;
+        }
+    }
+#define IN_ADD(expr)                                                                                                   \
+    do {                                                                                                               \
+        k = (expr);                                                                                                    \
+        if (k > 0 && len + (size_t)k <= sizeof(buf)) {                                                                 \
+            memcpy(buf + len, line, (size_t)k);                                                                        \
+            len += (size_t)k;                                                                                          \
+        }                                                                                                              \
+    } while (0)
+    IN_ADD(ppc_evt_format_in_begin(line, sizeof(line), &hd));
+    for (metric = 0; metric < PPC_INM_COUNT; metric++) {
+        struct ppc_evt_in_cmp e;
+
+        if (ppc_intel_compare(&h->intl, m->id, c->pair, metric, &cmp) != 0) {
+            continue;
+        }
+        if (metric == 0) {
+            for (i = 0; i < 2; i++) {
+                struct ppc_evt_in_vis v;
+
+                memset(&v, 0, sizeof(v));
+                v.side = (uint8_t)i;
+                v.from_ms = cmp.vis[i].from_ms;
+                v.to_ms = cmp.vis[i].to_ms;
+                v.watched_s = cmp.vis[i].watched_s;
+                v.held_s = cmp.vis[i].held_s;
+                v.shed_s = cmp.vis[i].shed_s;
+                v.gap_s = cmp.vis[i].gap_s;
+                v.frames = cmp.vis[i].frames;
+                v.lost_lo = cmp.vis[i].lost_lo;
+                v.lost_hi = cmp.vis[i].lost_hi;
+                v.loss_known = cmp.vis[i].loss_known;
+                v.own_in = cmp.vis[i].own_in;
+                v.own_out = cmp.vis[i].own_out;
+                IN_ADD(ppc_evt_format_in_vis(line, sizeof(line), &v));
+            }
+        }
+        memset(&e, 0, sizeof(e));
+        e.metric = cmp.metric;
+        e.verdict = cmp.verdict;
+        e.quality = cmp.quality;
+        e.reason = cmp.reason;
+        e.notes = cmp.notes;
+        for (i = 0; i < 2; i++) {
+            e.n[i] = cmp.n[i];
+            e.k[i] = cmp.k[i];
+            e.stat[i] = cmp.stat[i];
+            e.und[i] = cmp.undecided[i];
+        }
+        e.p_e6 = cmp.p_e6;
+        for (i = 0; i < PPC_IN_REF_MAX && i < PPC_IN_REFS; i++) {
+            e.ref[i] = cmp.refs[i];
+            e.alive[i] = cmp.refs[i] ? (uint8_t)ev_alive(h, cmp.refs[i]) : 0u;
+        }
+        IN_ADD(ppc_evt_format_in_cmp(line, sizeof(line), &e));
+    }
+    IN_ADD(ppc_evt_format_in_end(line, sizeof(line), c->req));
+#undef IN_ADD
+    if (sizeof(h->out) - h->out_len < len + PPC_LINE_MAX) {
+        return;
+    }
+    memcpy(h->out + h->out_len, buf, len);
+    h->out_len += len;
+    out_flush(h);
+}
+
 /* One command line. Returns 0 to go on, 1 to leave. */
 static int command(struct helper *h, const char *line)
 {
@@ -2304,6 +2455,9 @@ static int command(struct helper *h, const char *line)
         return 0;
     case PPC_CMD_EVID:
         cmd_evid(h, &c);
+        return 0;
+    case PPC_CMD_INTEL:
+        cmd_intel(h, &c);
         return 0;
     case PPC_CMD_WINDOW:
         cmd_window(h, &c);
@@ -2546,6 +2700,10 @@ static int run_session(const char *source_spec)
         ppc_evid_free(&h.ev);
         h.ev_ready = 0;
     }
+    if (h.in_ready) {
+        ppc_intel_free(&h.intl);
+        h.in_ready = 0;
+    }
     if (h.store_ready) {
         ppc_store_free(&h.store);
         h.store_ready = 0;
@@ -2661,6 +2819,8 @@ static void bench_view(struct ppc_store *store)
 
 struct bench_evid {
     struct ppc_evid ev;
+    struct ppc_intel in;
+    int with_in;
 };
 
 static void bench_said(void *ctx, const struct ppc_net_said *s)
@@ -2670,6 +2830,9 @@ static void bench_said(void *ctx, const struct ppc_net_said *s)
 
     if (ppc_evid_from_net(s, 0, NULL, &o)) {
         ppc_evid_note(&b->ev, &o);
+        if (b->with_in) {
+            ppc_intel_note(&b->in, &o);
+        }
     }
 }
 
@@ -2691,6 +2854,7 @@ static int run_bench(uint64_t frames)
     double ns_format;
     double ns_net = 0;
     double ns_evid = 0;
+    double ns_intel = 0;
     struct ppc_net net;
     struct bench_evid be;
     uint64_t rows;
@@ -2788,6 +2952,45 @@ static int run_bench(uint64_t frames)
         ppc_evid_free(&be.ev);
         ppc_net_free(&net);
     }
+    /* The same with the comparison engine fed as the session feeds it (N1.2):
+     * every frame, every observation, a tick and a lost-frame reading each
+     * 1024 frames; its cost is the difference to the figure above. */
+    memset(&be, 0, sizeof(be));
+    be.with_in = 1;
+    if (ppc_net_init(&net) == 0 && ppc_evid_init(&be.ev) == 0 && ppc_intel_init(&be.in) == 0) {
+        ppc_net_listen(&net, bench_said, &be);
+        t0 = clock_ns(CLOCK_MONOTONIC);
+        for (i = 0; i < frames; i++) {
+            uint32_t pay;
+            uint32_t ms;
+
+            f.data = tpl[i % BENCH_TEMPLATES];
+            f.cap_len = f.wire_len = tpl_len[i % BENCH_TEMPLATES];
+            pay = ppc_decode(&f, &r);
+            r.rel_ns = i * 500000u;
+            ms = (uint32_t)(r.rel_ns / 1000000u);
+            ppc_intel_frame(&be.in, ms, PPC_PKT_UNKNOWN, 0);
+            ppc_net_frame(&net, &r, f.data, f.cap_len, pay, (uint32_t)i + 1u);
+            if ((i & 1023u) == 0) {
+                ppc_net_expire(&net, r.rel_ns);
+                ppc_evid_tick(&be.ev, ms, PPC_EVS_WATCHED);
+                ppc_intel_tick(&be.in, ms, PPC_EVS_WATCHED);
+                ppc_intel_counters(&be.in, ms, 1, 0);
+                if (i == 1024u || (i & 0xfffffu) == 0) {
+                    const struct ppc_ev_mark *mk = ppc_evid_mark(&be.ev, ms, PPC_STATE_CAPTURING, (uint32_t)i + 1u, 0);
+
+                    if (mk) {
+                        ppc_intel_mark(&be.in, mk->id, mk->at_ms);
+                    }
+                }
+            }
+        }
+        ns_intel = (double)(clock_ns(CLOCK_MONOTONIC) - t0) / (double)frames;
+        sink += be.ev.total;
+        ppc_intel_free(&be.in);
+        ppc_evid_free(&be.ev);
+        ppc_net_free(&net);
+    }
 
     rows = frames / 10u ? frames / 10u : 1u;
     t0 = clock_ns(CLOCK_MONOTONIC);
@@ -2814,6 +3017,8 @@ static int run_bench(uint64_t frames)
                       PPC_NET_DHCP * sizeof(struct ppc_net_dhcp) + sizeof(struct ppc_net)));
     printf("bench decode_net_evid_ns_per_frame=%.0f\n", ns_evid);
     printf("bench evid_bytes=%u\n", (unsigned)(ppc_evid_bytes() + sizeof(struct ppc_evid)));
+    printf("bench decode_net_evid_intel_ns_per_frame=%.0f\n", ns_intel);
+    printf("bench intel_bytes=%u\n", (unsigned)(ppc_intel_bytes() + sizeof(struct ppc_intel)));
     printf("bench store_fill_permille=%u held=%u sink=%llu\n", ppc_store_fill_permille(&store),
            ppc_store_count(&store), (unsigned long long)(sink & 1u));
     bench_view(&store);

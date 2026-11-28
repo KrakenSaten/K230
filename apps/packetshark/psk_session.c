@@ -211,6 +211,19 @@ int psk_session_evid(struct psk_session *s, struct psk_model *m, uint32_t id)
     return 0;
 }
 
+int psk_session_intel(struct psk_session *s, struct psk_model *m, uint32_t id, unsigned pair)
+{
+    char line[48];
+    uint32_t req = ++s->next_req ? s->next_req : ++s->next_req;
+    int n = ppc_cmd_format_intel(line, sizeof(line), req, id, pair);
+
+    if (n < 0 || pair > 1u || send_raw(s, line, n) != 0) {
+        return -1;
+    }
+    m->want_in[pair] = req;
+    return 0;
+}
+
 int psk_session_save(struct psk_session *s)
 {
     return send_word(s, "save");
