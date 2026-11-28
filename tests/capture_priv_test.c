@@ -25,7 +25,9 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <arpa/inet.h>
 #include <linux/if_ether.h>
+#include <netinet/in.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -96,7 +98,7 @@ static int root_child(const char *unused)
     int fd;
 
     (void)unused;
-    path_of(path, sizeof(path), "captures");
+    path_of(path, sizeof(path), "Captures");
     dfd = capture_captures_dir(path);
     if (dfd < 0 || capture_drop(&p) != 0) {
         return R_DROP;
@@ -116,6 +118,21 @@ static int root_child(const char *unused)
     }
     if (socket(AF_PACKET, SOCK_RAW, 0) >= 0 || socket(AF_INET, SOCK_RAW, 1) >= 0) {
         bad |= R_SOCKET;
+    }
+    /* an ordinary socket can be made, but in a network namespace of its own
+     * it reaches no network */
+    {
+        struct sockaddr_in to;
+        int s = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
+
+        memset(&to, 0, sizeof(to));
+        to.sin_family = AF_INET;
+        to.sin_port = htons(9);
+        inet_pton(AF_INET, "192.0.2.1", &to.sin_addr);
+        if (p.net_after == p.net_before || s < 0 || connect(s, (struct sockaddr *)&to, sizeof(to)) == 0 ||
+            errno != ENETUNREACH) {
+            bad |= R_SOCKET;
+        }
     }
     if (setuid(0) == 0 || setresuid(0, 0, 0) == 0 || setgid(0) == 0) {
         bad |= R_BACK;
@@ -170,9 +187,9 @@ static void as_root(void)
     check("setup: a root-owned 0660 character device node",
           mknod(path, S_IFCHR | 0660, makedev(1, 3)) == 0 && chmod(path, 0660) == 0);
     /* SAVE's folder with a root-owned capture already in it, root's 0700 */
-    path_of(path, sizeof(path), "captures");
+    path_of(path, sizeof(path), "Captures");
     mkdir(path, 0700);
-    path_of(path, sizeof(path), "captures/capture-old.pcap");
+    path_of(path, sizeof(path), "Captures/capture-old.pcap");
     fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
     if (fd >= 0) {
         close(fd);
@@ -185,29 +202,34 @@ static void as_root(void)
           !(bits & (R_DROP | R_IDENTITY)));
     check("root-owned files cannot be opened any more", !(bits & (R_DROP | R_FILES)));
     check("a root-owned 0660 device node cannot be opened any more", !(bits & (R_DROP | R_NODE)));
-    check("no raw socket can be made", !(bits & (R_DROP | R_SOCKET)));
+    check("no raw socket can be made; a network namespace of its own: an ordinary socket reaches no network",
+          !(bits & (R_DROP | R_SOCKET)));
     check("uid 0 and gid 0 cannot be taken back", !(bits & (R_DROP | R_BACK)));
     check("SAVE's folder takes a new 0600 file of the identity through its descriptor", !(bits & (R_DROP | R_SAVE)));
     check("root's folder around it cannot be written", !(bits & (R_DROP | R_PARENT)));
-    path_of(path, sizeof(path), "captures");
+    path_of(path, sizeof(path), "Captures");
     check("the captures folder is the identity's and 0700",
           stat(path, &sb) == 0 && sb.st_uid == (uid_t)POS_CAPTURE_ID && sb.st_gid == (gid_t)POS_CAPTURE_ID &&
               (sb.st_mode & 07777) == 0700);
-    path_of(path, sizeof(path), "captures/capture-old.pcap");
+    path_of(path, sizeof(path), "Captures/capture-old.pcap");
     check("a capture already there stays root's and 0600",
           stat(path, &sb) == 0 && sb.st_uid == 0 && (sb.st_mode & 07777) == 0600);
 
     check("a forced failure of the last check fails closed", in_child(forced_child, NULL) == 0);
 
+    path_of(path, sizeof(path), "root-other");
+    mkdir(path, 0700);
+    check("a root-owned folder that is not a Captures folder is refused, and keeps its owner",
+          in_child(refused_dir_child, "root-other") == 0 && stat(path, &sb) == 0 && sb.st_uid == 0);
     path_of(path, sizeof(path), "someone-elses");
     mkdir(path, 0700);
     check("setup: a folder of another user", chown(path, 1234, 1234) == 0);
     check("a captures folder of another user is refused", in_child(refused_dir_child, "someone-elses") == 0);
-    path_of(path, sizeof(path), "captures");
-    path_of(link, sizeof(link), "captures-link");
+    path_of(path, sizeof(path), "Captures");
+    path_of(link, sizeof(link), "Captures-link");
     unlink(link);
     check("setup: a link to the folder", symlink(path, link) == 0);
-    check("a captures folder that is a link is refused", in_child(refused_dir_child, "captures-link") == 0);
+    check("a captures folder that is a link is refused", in_child(refused_dir_child, "Captures-link") == 0);
 }
 
 /* ---- without root -------------------------------------------------------------------------- */

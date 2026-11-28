@@ -34,18 +34,26 @@ struct capture_priv {
     int ngroups;          /* supplementary groups after the drop */
     unsigned long long cap_inh, cap_prm, cap_eff, cap_bnd, cap_amb;
     int no_new_privs;
+    unsigned long net_before, net_after; /* network namespace inodes; differ when it got its own */
     char why[96];         /* the first step or check that failed; "" when none */
 };
 
 /* The captures folder, prepared before the drop and kept open, so that SAVE
  * works without a path to it: created 0700 if missing; refused if it is a
- * link, not a folder, or owned by anyone but root, the capture identity or
- * the helper itself; mode 0700; when the helper is root, owned by the
- * capture identity, the files already in it left as they are. Returns the folder's descriptor, or
- * -1 (SAVE then reports "nodir"; the capture still runs). */
+ * link or not a folder; mode 0700. When the helper is root, the folder is
+ * handed to the capture identity only if it was just made, is the
+ * identity's already, or is a root-owned folder named "Captures" whose
+ * parent is root's and writable by root alone: never an arbitrary folder a
+ * misconfigured path names (a home, a mount point). The files already in it
+ * keep their owner. Without root, only the helper's own folder is used.
+ * Returns the folder's descriptor, or -1 (SAVE then reports "nodir"; the
+ * capture still runs). */
 int capture_captures_dir(const char *dir);
 
-/* Leave root for the capture identity and drop everything (see above).
+/* Leave root for the capture identity and drop everything (see above). As
+ * root it first gives the helper a network namespace of its own: the
+ * capture socket it already holds keeps working, but a socket made later
+ * reaches no network, and no abstract local socket of the system.
  * 0 when every check reads back as expected; -1 otherwise, with out->why
  * saying which. A caller must refuse the capture on -1. */
 int capture_drop(struct capture_priv *out);

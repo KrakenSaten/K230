@@ -386,8 +386,8 @@ static int drop_privileges(struct helper *h, char *why, size_t whylen)
     snprintf(note, sizeof(note), "dropped bnd=%s", p.cap_bnd == 0 ? "empty" : "kept");
     LOG_INFO("capture: capabilities %s", note);
     say_note(h, "caps", note);
-    snprintf(note, sizeof(note), "%s uid=%u gid=%u groups=%d", p.was_root ? "switched" : "unprivileged",
-             (unsigned)p.euid, (unsigned)p.egid, p.ngroups);
+    snprintf(note, sizeof(note), "%s uid=%u gid=%u groups=%d%s", p.was_root ? "switched" : "unprivileged",
+             (unsigned)p.euid, (unsigned)p.egid, p.ngroups, p.was_root ? " netns=own" : "");
     LOG_INFO("capture: identity %s", note);
     say_note(h, "identity", note);
     return 0;
@@ -926,11 +926,14 @@ static void cmd_start(struct helper *h, const struct ppc_cmd *c)
     /* The captures folder, while the helper may still reach it: SAVE writes
      * through this descriptor after the drop (ADR-016 rule 9, amended). */
     h->cap_dirfd = capture_captures_dir(ppc_captures_dir(dirbuf, sizeof(dirbuf)));
-    /* Least privilege before the first frame is read; fail closed. */
+    /* Least privilege before the first frame is read; fail closed. A
+     * failed reduction may have left this process partly privileged, so it
+     * says why and ends: the next START is a new helper. */
     if (drop_privileges(h, why, sizeof(why)) != 0) {
         start_undo(h);
         say_error(h, "privilege", why);
-        return;
+        out_flush(h);
+        _exit(3);
     }
     if (h->ev_ready) {
         /* What the evidence can observe: the capture filter only a live
@@ -2810,6 +2813,27 @@ static int usage(void)
     return 2;
 }
 
+/* Every descriptor above stderr, however high: close_range where the
+ * kernel has it (5.9), else every number up to the descriptor limit. */
+static void close_inherited(void)
+{
+    long max;
+    long fd;
+
+#ifdef SYS_close_range
+    if (syscall(SYS_close_range, 3u, ~0u, 0u) == 0) {
+        return;
+    }
+#endif
+    max = sysconf(_SC_OPEN_MAX);
+    if (max < 1024 || max > 1048576) {
+        max = max < 1024 ? 1024 : 1048576;
+    }
+    for (fd = 3; fd < max; fd++) {
+        close((int)fd);
+    }
+}
+
 int main(int argc, char **argv)
 {
     if (argc < 2) {
@@ -2852,9 +2876,7 @@ int main(int argc, char **argv)
         /* Nothing inherited reaches a capture: the session keeps stdin,
          * stdout and stderr (the shell's socketpair and /dev/null) and
          * closes every other descriptor before it opens its own. */
-        for (int fd = 3; fd < 1024; fd++) {
-            close(fd);
-        }
+        close_inherited();
         pocketlog_init("pos-capture");
         return run_session(spec);
     }

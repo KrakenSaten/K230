@@ -156,16 +156,16 @@ check "and for every answer of evidence, at STOP before the windows close, and o
 # before the drop; the failure switch exists only in the test build.
 P=tools/capture/capture_priv.c
 check "a start drops privileges after the source opens and before the capture state, and fails closed" \
-    "$(hbody cmd_start | grep -n 'h->src_open = 1;\|capture_captures_dir(\|drop_privileges(h, why, sizeof(why))\|start_undo(h);\|say_error(h, \"privilege\", why);\|h->state = PPC_STATE_CAPTURING;' |
+    "$(hbody cmd_start | grep -n 'h->src_open = 1;\|capture_captures_dir(\|drop_privileges(h, why, sizeof(why))\|start_undo(h);\|say_error(h, \"privilege\", why);\|_exit(3);\|h->state = PPC_STATE_CAPTURING;' |
        cut -d: -f2 | tr '\n' ' ' |
-       grep -q 'h->src_open = 1;.*capture_captures_dir(.*drop_privileges(h, why, sizeof(why)).*start_undo(h);.*say_error(h, "privilege", why);.*h->state = PPC_STATE_CAPTURING;' &&
+       grep -q 'h->src_open = 1;.*capture_captures_dir(.*drop_privileges(h, why, sizeof(why)).*start_undo(h);.*say_error(h, "privilege", why);.*_exit(3);.*h->state = PPC_STATE_CAPTURING;' &&
        [ "$(code $H | grep -c 'drop_privileges(h')" = "1" ] && echo 1 || echo 0)"
 check "frames are analysed only while capturing, so none before the drop" \
     "$(hbody on_frame | grep -q 'if (h->state != PPC_STATE_CAPTURING) {' && echo 1 || echo 0)"
-check "the identity switch: groups, gid, uid in that order, then capabilities, then checks read back" \
-    "$(code $P | grep -n 'setgroups(0, NULL)\|setresgid(gid, gid, gid)\|setresuid(id, id, id)\|SYS_capset\|read_status(p)\|setresuid(0, 0, 0)' |
+check "the identity switch: no_new_privs, bounding set, own network namespace, groups, gid, uid, capabilities, checks read back" \
+    "$(code $P | grep -n 'PR_SET_NO_NEW_PRIVS, 1\|PR_CAPBSET_DROP, cap\|unshare(CLONE_NEWNET)\|setgroups(0, NULL)\|setresgid(gid, gid, gid)\|setresuid(id, id, id)\|SYS_capset\|read_status(p)\|network namespace check\|setresuid(0, 0, 0)' |
        cut -d: -f2 | tr '\n' ' ' |
-       grep -q 'setgroups(0, NULL).*setresgid(gid, gid, gid).*setresuid(id, id, id).*SYS_capset.*read_status(p).*setresuid(0, 0, 0)' &&
+       grep -q 'PR_SET_NO_NEW_PRIVS, 1.*PR_CAPBSET_DROP, cap.*unshare(CLONE_NEWNET).*setgroups(0, NULL).*setresgid(gid, gid, gid).*setresuid(id, id, id).*SYS_capset.*read_status(p).*network namespace check.*setresuid(0, 0, 0)' &&
        echo 1 || echo 0)"
 check "the parent-death signal is set again after the identity change" \
     "$(hbody drop_privileges | grep -n 'capture_drop(&p)\|prctl(PR_SET_PDEATHSIG, SIGTERM' | cut -d: -f2 | tr '\n' ' ' |
@@ -183,9 +183,15 @@ check "the privilege-failure switch is in the test build alone" \
        sed -n '/^#if POS_CAPTURE_TEST_HOOKS$/,/^#endif$/p' $P | grep -q 'test_fail' &&
        [ "$(code $P | grep -c 'test_fail')" = "$(sed -n '/^#if POS_CAPTURE_TEST_HOOKS$/,/^#endif$/p' $P | code /dev/stdin | grep -c 'test_fail')" ] &&
        echo 1 || echo 0)"
-check "a session closes every inherited descriptor before it opens its own" \
-    "$(sed -n '/strcmp(argv\[1\], \"session\")/,/run_session(spec)/p' $H | grep -n 'close(fd);\|pocketlog_init(' | cut -d: -f2 | tr '\n' ' ' |
-       grep -q 'close(fd);.*pocketlog_init(' && echo 1 || echo 0)"
+check "a session closes every inherited descriptor, however high, before it opens its own" \
+    "$(sed -n '/strcmp(argv\[1\], \"session\")/,/run_session(spec)/p' $H | grep -n 'close_inherited();\|pocketlog_init(' | cut -d: -f2 | tr '\n' ' ' |
+       grep -q 'close_inherited();.*pocketlog_init(' && hbody close_inherited | grep -q 'SYS_close_range, 3u, ~0u' &&
+       hbody close_inherited | grep -q '_SC_OPEN_MAX' && echo 1 || echo 0)"
+check "a captures folder is handed to the identity only if just made, already its own, or a root-only Captures" \
+    "$(code $P | grep -q 'int may = ours || (sb.st_uid == 0 && (created || captures_by_name(fd, dir)));' &&
+       code $P | grep -q 'strcmp(base, \"Captures\") == 0' && code $P | grep -q '(psb.st_mode & 022) == 0' && echo 1 || echo 0)"
+check "the saved captures list only single-name regular files: no link, no second name of a file elsewhere" \
+    "$(code $A/psk_saves.c | grep -q '!S_ISREG(sb.st_mode) || sb.st_nlink != 1' && echo 1 || echo 0)"
 check "the counter-failure switch is in the test build alone: read once, inside #if POS_CAPTURE_TEST_HOOKS" \
     "$([ "$(code $H | grep -c 'getenv("POS_CAPTURE_TEST_STATS_FAIL")')" = "1" ] &&
        sed -n '/^#if POS_CAPTURE_TEST_HOOKS$/,/^#endif$/p' $H | grep -q 'getenv("POS_CAPTURE_TEST_STATS_FAIL")' &&
